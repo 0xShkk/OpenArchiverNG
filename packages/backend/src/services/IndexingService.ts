@@ -14,6 +14,8 @@ import { eq } from 'drizzle-orm';
 import { streamToBuffer } from '../helpers/streamToBuffer';
 import { simpleParser } from 'mailparser';
 import { logger } from '../config/logger';
+import { config } from '../config';
+import { SettingsService } from './SettingsService';
 
 interface DbRecipients {
 	to: { name: string; address: string }[];
@@ -64,6 +66,7 @@ export class IndexingService {
 	private dbService: DatabaseService;
 	private searchService: SearchService;
 	private storageService: StorageService;
+	private settingsService = new SettingsService();
 
 	constructor(
 		dbService: DatabaseService,
@@ -86,7 +89,7 @@ export class IndexingService {
 		logger.info({ batchSize: emails.length }, 'Starting batch indexing of emails');
 
 		try {
-			const CONCURRENCY_LIMIT = 10;
+			const CONCURRENCY_LIMIT = config.meili.indexingConcurrency || 4;
 			const rawDocuments: EmailDocument[] = [];
 
 			for (let i = 0; i < emails.length; i += CONCURRENCY_LIMIT) {
@@ -195,6 +198,24 @@ export class IndexingService {
 				'Failed to index email batch'
 			);
 			throw error;
+		}
+	}
+
+	public async reindexEmailsByIds(emailIds: string[]): Promise<void> {
+		if (emailIds.length === 0) {
+			return;
+		}
+
+		const documents: EmailDocument[] = [];
+		for (const emailId of emailIds) {
+			const document = await this.indexEmailById(emailId);
+			if (document) {
+				documents.push(document);
+			}
+		}
+
+		if (documents.length > 0) {
+			await this.searchService.addDocuments('emails', documents, 'id');
 		}
 	}
 
@@ -370,6 +391,7 @@ export class IndexingService {
 			attachments: extractedAttachments,
 			timestamp: new Date(email.receivedAt).getTime(),
 			ingestionSourceId: ingestionSourceId,
+			isOnLegalHold: false,
 		};
 	}
 
@@ -378,16 +400,37 @@ export class IndexingService {
 		attachments: Attachment[],
 		userEmail: string //the owner of the email inbox
 	): Promise<EmailDocument> {
-		const attachmentContents = await this.extractAttachmentContents(attachments);
+		const settings = await this.settingsService.getSystemSettings();
+		const maxEmailBytes = settings.maxEmailBytes;
+		const maxAttachmentBytes = settings.maxAttachmentBytes;
+		const attachmentContents = await this.extractAttachmentContents(
+			attachments,
+			maxAttachmentBytes
+		);
+		let emailBodyText = '';
 
-		const emailBodyStream = await this.storageService.get(email.storagePath);
-		const emailBodyBuffer = await streamToBuffer(emailBodyStream);
-		const parsedEmail = await simpleParser(emailBodyBuffer);
-		const emailBodyText =
-			parsedEmail.text ||
-			parsedEmail.html ||
-			(await extractText(emailBodyBuffer, 'text/plain')) ||
-			'';
+		if (email.sizeBytes && email.sizeBytes > maxEmailBytes) {
+			logger.warn(
+				{ emailId: email.id, sizeBytes: email.sizeBytes },
+				'Email size exceeds indexing limit. Skipping body extraction.'
+			);
+		} else {
+			try {
+				const emailBodyStream = await this.storageService.get(email.storagePath);
+				const emailBodyBuffer = await streamToBuffer(emailBodyStream, maxEmailBytes);
+				const parsedEmail = await simpleParser(emailBodyBuffer);
+				emailBodyText =
+					parsedEmail.text ||
+					parsedEmail.html ||
+					(await extractText(emailBodyBuffer, 'text/plain')) ||
+					'';
+			} catch (error) {
+				logger.warn(
+					{ emailId: email.id, error },
+					'Failed to extract email body for indexing.'
+				);
+			}
+		}
 
 		const recipients = email.recipients as DbRecipients;
 		// console.log('email.userEmail', email.userEmail);
@@ -403,17 +446,27 @@ export class IndexingService {
 			attachments: attachmentContents,
 			timestamp: new Date(email.sentAt).getTime(),
 			ingestionSourceId: email.ingestionSourceId,
+			isOnLegalHold: email.isOnLegalHold,
 		};
 	}
 
 	private async extractAttachmentContents(
-		attachments: Attachment[]
+		attachments: Attachment[],
+		maxAttachmentBytes: number
 	): Promise<{ filename: string; content: string }[]> {
 		const extractedAttachments = [];
 		for (const attachment of attachments) {
 			try {
+				if (attachment.sizeBytes && attachment.sizeBytes > maxAttachmentBytes) {
+					logger.warn(
+						{ attachmentId: attachment.id, sizeBytes: attachment.sizeBytes },
+						'Attachment size exceeds indexing limit. Skipping text extraction.'
+					);
+					continue;
+				}
+
 				const fileStream = await this.storageService.get(attachment.storagePath);
-				const fileBuffer = await streamToBuffer(fileStream);
+				const fileBuffer = await streamToBuffer(fileStream, maxAttachmentBytes);
 				const textContent = await extractText(fileBuffer, attachment.mimeType || '');
 				extractedAttachments.push({
 					filename: attachment.filename,
@@ -493,6 +546,7 @@ export class IndexingService {
 			attachments: Array.isArray(doc.attachments) ? doc.attachments : [],
 			timestamp: typeof doc.timestamp === 'number' ? doc.timestamp : Date.now(),
 			ingestionSourceId: doc.ingestionSourceId || 'unknown',
+			isOnLegalHold: doc.isOnLegalHold ?? false,
 		};
 	}
 

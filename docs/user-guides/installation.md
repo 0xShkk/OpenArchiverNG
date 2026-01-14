@@ -21,7 +21,7 @@ cd OpenArchiver
 
 Before configuring the application, you **must** create a directory on your host machine where Open Archiver will store its data (such as emails and attachments). Manually creating this directory helps prevent potential permission issues.
 
-Foe examples, you can use this path `/var/data/open-archiver`.
+For example, you can use this path `/var/data/open-archiver`.
 
 Run the following commands to create the directory and set the correct permissions:
 
@@ -36,10 +36,10 @@ This ensures the directory is owned by your current user, which is necessary for
 
 The application is configured using environment variables. You'll need to create a `.env` file to store your configuration.
 
-Copy the example environment file for Docker:
+Copy the example environment file:
 
 ```bash
-cp .env.example.docker .env
+cp .env.example .env
 ```
 
 Now, open the `.env` file in a text editor and customize the settings.
@@ -58,20 +58,24 @@ Now, open the `.env` file in a text editor and customize the settings.
 - `REDIS_PASSWORD`: A strong, unique password for the Valkey/Redis service.
 - `MEILI_MASTER_KEY`: A complex key for Meilisearch.
 - `JWT_SECRET`: A long, random string for signing authentication tokens.
-- `ENCRYPTION_KEY`: A 32-byte hex string for encrypting sensitive data in the database. You can generate one with the following command:
+- `ENCRYPTION_KEY`: A 32-byte hex string for encrypting sensitive data in the database. This is required; the container will refuse to start if it is missing. If it is missing on first run, the container will generate a key file at `${STORAGE_LOCAL_ROOT_PATH}/.open-archiver/encryption_key` and exit. Copy it into `.env` and delete the file before starting again. You can also generate one with the following command:
     ```bash
     openssl rand -hex 32
     ```
-- `STORAGE_ENCRYPTION_KEY`: **(Optional but Recommended)** A 32-byte hex string for encrypting emails and attachments at rest. If this key is not provided, storage encryption will be disabled. You can generate one with:
+- `STORAGE_ENCRYPTION_KEY`: A 32-byte hex string for encrypting emails and attachments at rest. This is required; the container will refuse to start if it is missing. If it is missing on first run, the container will generate a key file at `${STORAGE_LOCAL_ROOT_PATH}/.open-archiver/storage_encryption_key` and exit. Copy it into `.env` and delete the file before starting again. You can generate one with:
     ```bash
     openssl rand -hex 32
     ```
+
+3.  **Postgres Password Changes**: If you change `POSTGRES_PASSWORD` after a successful first run, the existing database volume keeps the old credentials. Remove the `pgdata` volume or run an `ALTER USER` on Postgres to apply the new password.
 
 ### Storage Configuration
 
-By default, the Docker Compose setup uses local filesystem storage, which is persisted using a Docker volume named `archiver-data`. This is suitable for most use cases.
+By default, the Docker Compose setup uses local filesystem storage and bind-mounts `STORAGE_LOCAL_ROOT_PATH` into the container. Archived emails and attachments are stored at `${STORAGE_LOCAL_ROOT_PATH}/open-archiver/` on the host.
 
 If you want to use S3-compatible object storage, change the `STORAGE_TYPE` to `s3` and fill in your S3 credentials (`STORAGE_S3_*` variables). When `STORAGE_TYPE` is set to `local`, the S3-related variables are not required.
+
+To store data in a different host folder, update `STORAGE_LOCAL_ROOT_PATH` in `.env` and ensure the directory exists and is writable.
 
 ### Using External Services
 
@@ -90,60 +94,73 @@ Here is a complete list of environment variables available for configuration:
 
 #### Application Settings
 
-| Variable                | Description                                                                                                                                                  | Default Value           |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------- |
-| `NODE_ENV`              | The application environment.                                                                                                                                 | `development`           |
-| `PORT_BACKEND`          | The port for the backend service.                                                                                                                            | `4000`                  |
-| `PORT_FRONTEND`         | The port for the frontend service.                                                                                                                           | `3000`                  |
-| `APP_URL`               | The public-facing URL of your application. This is used by the backend to configure CORS.                                                                    | `http://localhost:3000` |
-| `ORIGIN`                | Used by the SvelteKit Node adapter to determine the server's public-facing URL. It should always be set to the value of `APP_URL` (e.g., `ORIGIN=$APP_URL`). | `http://localhost:3000` |
-| `SYNC_FREQUENCY`        | The frequency of continuous email syncing. See [cron syntax](https://crontab.guru/) for more details.                                                        | `* * * * *`             |
-| `ALL_INCLUSIVE_ARCHIVE` | Set to `true` to include all emails, including Junk and Trash folders, in the email archive.                                                                 | `false`                 |
+| Variable                | Description                                                                                           | Default Value           |
+| ----------------------- | ----------------------------------------------------------------------------------------------------- | ----------------------- |
+| `NODE_ENV`              | The application environment.                                                                          | `development`           |
+| `PORT_BACKEND`          | The port for the backend service.                                                                     | `4000`                  |
+| `PORT_FRONTEND`         | The port for the frontend service.                                                                    | `3000`                  |
+| `APP_URL`               | The public-facing URL of your application. This is used by the backend to configure CORS.             | `http://localhost:3000` |
+| `ORIGIN`                | Used by the SvelteKit Node adapter. Set to the origin only (scheme + host + port) of `APP_URL`.       | `http://localhost:3000` |
+| `SYNC_FREQUENCY`        | The frequency of continuous email syncing. See [cron syntax](https://crontab.guru/) for more details. | `* * * * *`             |
+| `MAX_EMAIL_BYTES`       | Skip parsing/indexing for emails larger than this size.                                               | `25M`                   |
+| `MAX_PREVIEW_BYTES`     | Skip loading raw email previews larger than this size.                                                | `10M`                   |
+| `MAX_ATTACHMENT_BYTES`  | Skip attachment text extraction larger than this size.                                                | `50M`                   |
+| `ALL_INCLUSIVE_ARCHIVE` | Set to `true` to include all emails, including Junk and Trash folders, in the email archive.          | `false`                 |
 
 #### Docker Compose Service Configuration
 
 These variables are used by `docker-compose.yml` to configure the services.
 
-| Variable               | Description                                          | Default Value                                            |
-| ---------------------- | ---------------------------------------------------- | -------------------------------------------------------- |
-| `POSTGRES_DB`          | The name of the PostgreSQL database.                 | `open_archive`                                           |
-| `POSTGRES_USER`        | The username for the PostgreSQL database.            | `admin`                                                  |
-| `POSTGRES_PASSWORD`    | The password for the PostgreSQL database.            | `password`                                               |
-| `DATABASE_URL`         | The connection URL for the PostgreSQL database.      | `postgresql://admin:password@postgres:5432/open_archive` |
-| `MEILI_MASTER_KEY`     | The master key for Meilisearch.                      | `aSampleMasterKey`                                       |
-| `MEILI_HOST`           | The host for the Meilisearch service.                | `http://meilisearch:7700`                                |
-| `MEILI_INDEXING_BATCH` | The number of emails to batch together for indexing. | `500`                                                    |
-| `REDIS_HOST`           | The host for the Valkey (Redis) service.             | `valkey`                                                 |
-| `REDIS_PORT`           | The port for the Valkey (Redis) service.             | `6379`                                                   |
-| `REDIS_PASSWORD`       | The password for the Valkey (Redis) service.         | `defaultredispassword`                                   |
-| `REDIS_TLS_ENABLED`    | Enable or disable TLS for Redis.                     | `false`                                                  |
+| Variable                            | Description                                               | Default Value                                            |
+| ----------------------------------- | --------------------------------------------------------- | -------------------------------------------------------- |
+| `POSTGRES_DB`                       | The name of the PostgreSQL database.                      | `open_archive`                                           |
+| `POSTGRES_USER`                     | The username for the PostgreSQL database.                 | `admin`                                                  |
+| `POSTGRES_PASSWORD`                 | The password for the PostgreSQL database.                 | `password`                                               |
+| `DATABASE_URL`                      | The connection URL for the PostgreSQL database.           | `postgresql://admin:password@postgres:5432/open_archive` |
+| `MEILI_MASTER_KEY`                  | The master key for Meilisearch.                           | `aSampleMasterKey`                                       |
+| `MEILI_HOST`                        | The host for the Meilisearch service.                     | `http://meilisearch:7700`                                |
+| `MEILI_INDEXING_BATCH`              | The number of emails to batch together for indexing.      | `500`                                                    |
+| `MEILI_INDEXING_CONCURRENCY`        | Concurrent parsing of emails per batch.                   | `4`                                                      |
+| `MEILI_INDEXING_WORKER_CONCURRENCY` | Concurrent indexing jobs processed by the worker.         | `2`                                                      |
+| `MEILI_INDEXING_MAX_QUEUE`          | Pause ingestion when indexing backlog exceeds this count. | `2000`                                                   |
+| `REDIS_HOST`                        | The host for the Valkey (Redis) service.                  | `valkey`                                                 |
+| `REDIS_PORT`                        | The port for the Valkey (Redis) service.                  | `6379`                                                   |
+| `REDIS_PASSWORD`                    | The password for the Valkey (Redis) service.              | `defaultredispassword`                                   |
+| `REDIS_TLS_ENABLED`                 | Enable or disable TLS for Redis.                          | `false`                                                  |
 
 #### Storage Settings
 
-| Variable                       | Description                                                                                                 | Default Value             |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------------- | ------------------------- |
-| `STORAGE_TYPE`                 | The storage backend to use (`local` or `s3`).                                                               | `local`                   |
-| `BODY_SIZE_LIMIT`              | The maximum request body size for uploads. Can be a number in bytes or a string with a unit (e.g., `100M`). | `100M`                    |
-| `STORAGE_LOCAL_ROOT_PATH`      | The root path for Open Archiver app data.                                                                   | `/var/data/open-archiver` |
-| `STORAGE_S3_ENDPOINT`          | The endpoint for S3-compatible storage (required if `STORAGE_TYPE` is `s3`).                                |                           |
-| `STORAGE_S3_BUCKET`            | The bucket name for S3-compatible storage (required if `STORAGE_TYPE` is `s3`).                             |                           |
-| `STORAGE_S3_ACCESS_KEY_ID`     | The access key ID for S3-compatible storage (required if `STORAGE_TYPE` is `s3`).                           |                           |
-| `STORAGE_S3_SECRET_ACCESS_KEY` | The secret access key for S3-compatible storage (required if `STORAGE_TYPE` is `s3`).                       |                           |
-| `STORAGE_S3_REGION`            | The region for S3-compatible storage (required if `STORAGE_TYPE` is `s3`).                                  |                           |
-| `STORAGE_S3_FORCE_PATH_STYLE`  | Force path-style addressing for S3 (optional).                                                              | `false`                   |
-| `STORAGE_ENCRYPTION_KEY`       | A 32-byte hex string for AES-256 encryption of files at rest. If not set, files will not be encrypted.      |                           |
+| Variable                       | Description                                                                                                                                                                                                                                                    | Default Value             |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| `STORAGE_TYPE`                 | The storage backend to use (`local` or `s3`).                                                                                                                                                                                                                  | `local`                   |
+| `BODY_SIZE_LIMIT`              | The maximum request body size for uploads. Can be a number in bytes or a string with a unit (e.g., `100M`).                                                                                                                                                    | `100M`                    |
+| `STORAGE_LOCAL_ROOT_PATH`      | The root path for Open Archiver app data.                                                                                                                                                                                                                      | `/var/data/open-archiver` |
+| `STORAGE_S3_ENDPOINT`          | The endpoint for S3-compatible storage (required if `STORAGE_TYPE` is `s3`).                                                                                                                                                                                   |                           |
+| `STORAGE_S3_BUCKET`            | The bucket name for S3-compatible storage (required if `STORAGE_TYPE` is `s3`).                                                                                                                                                                                |                           |
+| `STORAGE_S3_ACCESS_KEY_ID`     | The access key ID for S3-compatible storage (required if `STORAGE_TYPE` is `s3`).                                                                                                                                                                              |                           |
+| `STORAGE_S3_SECRET_ACCESS_KEY` | The secret access key for S3-compatible storage (required if `STORAGE_TYPE` is `s3`).                                                                                                                                                                          |                           |
+| `STORAGE_S3_REGION`            | The region for S3-compatible storage (required if `STORAGE_TYPE` is `s3`).                                                                                                                                                                                     |                           |
+| `STORAGE_S3_FORCE_PATH_STYLE`  | Force path-style addressing for S3 (optional).                                                                                                                                                                                                                 | `false`                   |
+| `STORAGE_ENCRYPTION_KEY`       | A 32-byte hex string for AES-256 encryption of files at rest. Required. If missing on first run, a key file is generated at `${STORAGE_LOCAL_ROOT_PATH}/.open-archiver/storage_encryption_key`; copy it into `.env` and delete the file before starting again. |                           |
 
 #### Security & Authentication
 
-| Variable                         | Description                                                                                                                                                                         | Default Value                              |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| `ENABLE_DELETION`                | Enable or disable deletion of emails and ingestion sources. If this option is not set, or is set to any value other than `true`, deletion will be disabled for the entire instance. | `false`                                    |
-| `JWT_SECRET`                     | A secret key for signing JWT tokens.                                                                                                                                                | `a-very-secret-key-that-you-should-change` |
-| `JWT_EXPIRES_IN`                 | The expiration time for JWT tokens.                                                                                                                                                 | `7d`                                       |
-| ~~`SUPER_API_KEY`~~ (Deprecated) | An API key with super admin privileges. (The SUPER_API_KEY is deprecated since v0.3.0 after we roll out the role-based access control system.)                                      |                                            |
-| `RATE_LIMIT_WINDOW_MS`           | The window in milliseconds for which API requests are checked.                                                                                                                      | `900000` (15 minutes)                      |
-| `RATE_LIMIT_MAX_REQUESTS`        | The maximum number of API requests allowed from an IP within the window.                                                                                                            | `100`                                      |
-| `ENCRYPTION_KEY`                 | A 32-byte hex string for encrypting sensitive data in the database.                                                                                                                 |                                            |
+| Variable                         | Description                                                                                                                                                                                                                                                  | Default Value                              |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------ |
+| `ENABLE_DELETION`                | Enable or disable deletion of emails and ingestion sources. If this option is not set, or is set to any value other than `true`, deletion will be disabled for the entire instance.                                                                          | `false`                                    |
+| `DELETE_FROM_SOURCE_AFTER_ARCHIVE` | Delete emails from the source mailbox after they are archived. Requires provider delete permissions (IMAP delete, Gmail modify scope, or Microsoft Graph `Mail.ReadWrite`).                                                                                   | `false`                                    |
+| `JWT_SECRET`                     | A secret key for signing JWT tokens.                                                                                                                                                                                                                         | `a-very-secret-key-that-you-should-change` |
+| `JWT_EXPIRES_IN`                 | The expiration time for JWT tokens.                                                                                                                                                                                                                          | `7d`                                       |
+| ~~`SUPER_API_KEY`~~ (Deprecated) | An API key with super admin privileges. (The SUPER_API_KEY is deprecated since v0.3.0 after we roll out the role-based access control system.)                                                                                                               |                                            |
+| `RATE_LIMIT_WINDOW_MS`           | The window in milliseconds for which API requests are checked.                                                                                                                                                                                               | `60000` (1 minute)                         |
+| `RATE_LIMIT_MAX_REQUESTS`        | The maximum number of API requests allowed from an IP within the window.                                                                                                                                                                                     | `100`                                      |
+| `ENCRYPTION_KEY`                 | A 32-byte hex string for encrypting sensitive data in the database. Required. If missing on first run, a key file is generated at `${STORAGE_LOCAL_ROOT_PATH}/.open-archiver/encryption_key`; copy it into `.env` and delete the file before starting again. |                                            |
+| `QUEUE_LOCK_DURATION_MS`         | Job lock duration for long-running queues.                                                                                                                                                                                                                   | `600000`                                   |
+| `QUEUE_LOCK_RENEW_TIME_MS`       | How often workers renew job locks.                                                                                                                                                                                                                           | `60000`                                    |
+| `QUEUE_STALLED_INTERVAL_MS`      | Interval for stalled job checks.                                                                                                                                                                                                                             | `60000`                                    |
+| `QUEUE_MAX_STALLED_COUNT`        | Max stalled retries before failing a job.                                                                                                                                                                                                                    | `3`                                        |
+| `QUEUE_JOB_TIMEOUT_MS`           | Timeout for long-running jobs.                                                                                                                                                                                                                               | `3600000`                                  |
+| `INGESTION_WORKER_CONCURRENCY`   | Concurrent ingestion jobs per worker.                                                                                                                                                                                                                        | `2`                                        |
 
 #### Apache Tika Integration
 
@@ -156,12 +173,13 @@ These variables are used by `docker-compose.yml` to configure the services.
 Once you have configured your `.env` file, you can start all the services using Docker Compose:
 
 ```bash
+docker compose build
 docker compose up -d
 ```
 
 This command will:
 
-- Pull the required Docker images for the frontend, backend, database, and other services.
+- Build the local Open Archiver image and start the services.
 - Create and start the containers in the background (`-d` flag).
 - Create the persistent volumes for your data.
 
@@ -195,10 +213,8 @@ To update your Open Archiver instance to the latest version, run the following c
 # Pull the latest changes from the repository
 git pull
 
-# Pull the latest Docker images
-docker compose pull
-
-# Restart the services with the new images
+# Rebuild and restart the services with the new code
+docker compose build
 docker compose up -d
 ```
 
@@ -223,7 +239,9 @@ To do this, you will need to make a small modification to your `docker-compose.y
     ```diff
     services:
       open-archiver:
-        image: logiclabshq/open-archiver:latest
+        build:
+          context: .
+          dockerfile: apps/open-archiver/Dockerfile
         # ... other settings
     -   networks:
     -     - open-archiver-net
@@ -245,96 +263,19 @@ After making these changes, you can proceed with deploying your application on C
 
 ## Where is my data stored (When using local storage and Docker)?
 
-If you are using local storage to store your emails, based on your `docker-compose.yml` file, your data is being stored in what's called a "named volume" (`archiver-data`). That's why you're not seeing the files in the `./data/open-archiver` directory you created.
+When `STORAGE_TYPE=local`, the compose file bind-mounts `STORAGE_LOCAL_ROOT_PATH` into the container, so archived emails and attachments are stored directly on the host at `${STORAGE_LOCAL_ROOT_PATH}/open-archiver/`.
 
-1.  **List all Docker volumes**:
+If key files are generated on first run, they are stored at `${STORAGE_LOCAL_ROOT_PATH}/.open-archiver/` until you copy them into `.env` and delete the files.
 
-Run this command to see all the volumes on your system:
+Metadata and search indexes are stored in Docker volumes:
+
+- `pgdata` for Postgres
+- `valkeydata` for Valkey/Redis
+- `meilidata` for Meilisearch
+
+You can inspect Docker volumes with:
 
 ```bash
 docker volume ls
+docker volume inspect <volume_name>
 ```
-
-2.  **Identify the correct volume**:
-
-Look through the list for a volume name that ends with `_archiver-data`. The part before that will be your project's directory name. For example, if your project is in a folder named `OpenArchiver`, the volume will be `openarchiver_archiver-data` But it can be a randomly generated hash.
-
-3.  **Inspect the correct volume**:
-
-Once you've identified the correct volume name, use it in the `inspect` command. For example:
-
-```bash
-docker volume inspect <your_volume_name_here>
-```
-
-This will give you the correct `Mountpoint` path where your data is being stored. It will look something like this (the exact path will vary depending on your system):
-
-```json
-{
-	"CreatedAt": "2025-07-25T11:22:19Z",
-	"Driver": "local",
-	"Labels": {
-		"com.docker.compose.config-hash": "---",
-		"com.docker.compose.project": "---",
-		"com.docker.compose.version": "2.38.2",
-		"com.docker.compose.volume": "us8wwos0o4ok4go4gc8cog84_archiver-data"
-	},
-	"Mountpoint": "/var/lib/docker/volumes/us8wwos0o4ok4go4gc8cog84_archiver-data/_data",
-	"Name": "us8wwos0o4ok4go4gc8cog84_archiver-data",
-	"Options": null,
-	"Scope": "local"
-}
-```
-
-In this example, the data is located at `/var/lib/docker/volumes/us8wwos0o4ok4go4gc8cog84_archiver-data/_data`. You can then `cd` into that directory to see your files.
-
-### To save data to a specific folder
-
-To save the data to a specific folder on your machine, you'll need to make a change to your `docker-compose.yml`. You need to switch from a named volume to a "bind mount".
-
-Here’s how you can do it:
-
-1.  **Edit `docker-compose.yml`**:
-
-Open the `docker-compose.yml` file and find the `open-archiver` service. You're going to change the `volumes` section.
-
-**Change this:**
-
-```yaml
-services:
-    open-archiver:
-    # ... other config
-    volumes:
-        - archiver-data:/var/data/open-archiver
-```
-
-**To this:**
-
-```yaml
-services:
-    open-archiver:
-    # ... other config
-    volumes:
-        - ./data/open-archiver:/var/data/open-archiver
-```
-
-You'll also want to remove the `archiver-data` volume definition at the bottom of the file, since it's no longer needed.
-
-**Remove this whole block:**
-
-```yaml
-volumes:
-    # ... other volumes
-    archiver-data:
-        driver: local
-```
-
-2.  **Restart your containers**:
-
-After you've saved the changes, run the following command in your terminal to apply them. The `--force-recreate` flag will ensure the container is recreated with the new volume settings.
-
-```bash
-docker-compose up -d --force-recreate
-```
-
-After this, any new data will be saved directly into the `./data/open-archiver` folder in your project directory.

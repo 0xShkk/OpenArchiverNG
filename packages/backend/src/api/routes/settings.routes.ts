@@ -12,6 +12,7 @@ export const createSettingsRouter = (authService: AuthService): Router => {
 	 * @returns SystemSettings
 	 */
 	router.get('/system', settingsController.getSystemSettings);
+	router.get('/system/access', requireAuth(authService), settingsController.getSystemSettingsAccess);
 
 	// Protected route to update settings
 	router.put(

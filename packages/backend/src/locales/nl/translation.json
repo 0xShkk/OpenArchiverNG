@@ -58,5 +58,8 @@
 		"invalidFilePath": "Ongeldig bestandspad",
 		"fileNotFound": "Bestand niet gevonden",
 		"downloadError": "Fout bij het downloaden van het bestand"
+	},
+	"compliance": {
+		"holdReleased": "Legal hold released successfully."
 	}
 }

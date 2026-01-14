@@ -20,12 +20,14 @@
 	import * as Pagination from '$lib/components/ui/pagination/index.js';
 	import ChevronLeft from 'lucide-svelte/icons/chevron-left';
 	import ChevronRight from 'lucide-svelte/icons/chevron-right';
+	import { Checkbox } from '$lib/components/ui/checkbox';
 
 	let { data }: { data: PageData } = $props();
 	let searchResult = $derived(data.searchResult);
 	let keywords = $state(data.keywords || '');
 	let page = $derived(data.page);
 	let error = $derived(data.error);
+	let holdOnly = $state(Boolean(data.holdOnly));
 	let matchingStrategy: MatchingStrategy = $state(
 		(data.matchingStrategy as MatchingStrategy) || 'last'
 	);
@@ -71,6 +73,9 @@
 		params.set('keywords', keywords);
 		params.set('page', '1');
 		params.set('matchingStrategy', matchingStrategy);
+		if (holdOnly) {
+			params.set('holdOnly', 'true');
+		}
 		goto(`/dashboard/search?${params.toString()}`, { keepFocus: true });
 	}
 
@@ -165,6 +170,10 @@
 					{/each}
 				</Select.Content>
 			</Select.Root>
+			<label class="flex items-center gap-2 text-sm">
+				<Checkbox bind:checked={holdOnly} />
+				<span>{$t('app.search.hold_only')}</span>
+			</label>
 		</div>
 	</form>
 
@@ -304,7 +313,7 @@
 								<a
 									href={`/dashboard/search?keywords=${keywords}&page=${
 										currentPage - 1
-									}&matchingStrategy=${matchingStrategy}`}
+									}&matchingStrategy=${matchingStrategy}${holdOnly ? '&holdOnly=true' : ''}`}
 								>
 									<Pagination.PrevButton>
 										<ChevronLeft class="h-4 w-4" />
@@ -320,7 +329,7 @@
 								{:else}
 									<Pagination.Item>
 										<a
-											href={`/dashboard/search?keywords=${keywords}&page=${page.value}&matchingStrategy=${matchingStrategy}`}
+											href={`/dashboard/search?keywords=${keywords}&page=${page.value}&matchingStrategy=${matchingStrategy}${holdOnly ? '&holdOnly=true' : ''}`}
 										>
 											<Pagination.Link
 												{page}
@@ -336,7 +345,7 @@
 								<a
 									href={`/dashboard/search?keywords=${keywords}&page=${
 										currentPage + 1
-									}&matchingStrategy=${matchingStrategy}`}
+									}&matchingStrategy=${matchingStrategy}${holdOnly ? '&holdOnly=true' : ''}`}
 								>
 									<Pagination.NextButton>
 										<span class="hidden sm:block">{$t('app.search.next')}</span>

@@ -11,7 +11,9 @@ Before making requests to protected endpoints, you must authenticate with the AP
 ## API Services
 
 - [**Auth Service**](./auth.md): Handles user authentication.
+- [**Archive Export Service**](./archive-exports.md): Exports full archive snapshots.
 - [**Archived Email Service**](./archived-email.md): Manages archived emails.
+- [**Compliance Service**](./compliance.md): Manages cases, custodians, and legal holds.
 - [**Dashboard Service**](./dashboard.md): Provides data for the main dashboard.
 - [**Ingestion Service**](./ingestion.md): Manages email ingestion sources.
 - [**Search Service**](./search.md): Handles email search functionality.

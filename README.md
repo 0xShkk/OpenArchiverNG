@@ -1,4 +1,6 @@
-# Open Archiver
+# Open Archiver NG
+
+Maintained version of [Open Archiver](https://github.com/LogicLabs-OU/OpenArchiver)
 
 [![Docker Compose](https://img.shields.io/badge/Docker%20Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
@@ -52,7 +54,7 @@ Password: openarchiver_demo
 - **Pluggable Storage Backends**: Support both local filesystem storage and S3-compatible object storage (like AWS S3 or MinIO).
 - **Powerful Search & eDiscovery**: A high-performance search engine indexes the full text of emails and attachments (PDF, DOCX, etc.).
 - **Thread discovery**: The ability to discover if an email belongs to a thread/conversation and present the context.
-- **Compliance & Retention**: Define granular retention policies to automatically manage the lifecycle of your data. Place legal holds on communications to prevent deletion during litigation (TBD).
+- **Compliance & Retention**: Define granular retention policies to automatically manage the lifecycle of your data. Place legal holds on communications to prevent deletion during litigation.
 - **File Hash and Encryption**: Email and attachment file hash values are stored in the meta database upon ingestion, meaning any attempt to alter the file content will be identified, ensuring legal and regulatory compliance.
 -   - Each archived email comes with an "Integrity Report" feature that indicates if the files are original.
 - **Comprehensive Auditing**: An immutable audit trail logs all system activities, ensuring you have a clear record of who accessed what and when.
@@ -91,18 +93,55 @@ Open Archiver is built on a modern, scalable, and maintainable technology stack:
     cp .env.example .env
     ```
 
-    You will need to edit the `.env` file to set your admin passwords, secret keys, and other essential configuration. Read the .env.example for how to set up.
+    You will need to edit the `.env` file to set your admin passwords, secret keys, and other essential configuration. Read the .env.example for how to set up. `ENCRYPTION_KEY` and `STORAGE_ENCRYPTION_KEY` are required; the container will refuse to start if either is missing or if legacy key files are present. If a key is missing on first run, the container will generate a key file under `${STORAGE_LOCAL_ROOT_PATH}/.open-archiver/` and exit; copy it into `.env` and delete the file before starting again.
 
 3.  **Run the application:**
 
     ```bash
+    docker compose build
     docker compose up -d
     ```
 
-    This command will pull the pre-built Docker images and start all the services (frontend, backend, database, etc.) in the background.
+    This builds the local Open Archiver image and then starts all the services (frontend, backend, database, etc.) in the background.
 
 4.  **Access the application:**
     Once the services are running, you can access the Open Archiver web interface by navigating to `http://localhost:3000` in your web browser.
+
+### Storage & Data Location
+
+- **Local storage** (`STORAGE_TYPE=local`): archived emails and attachments are stored on the host at `${STORAGE_LOCAL_ROOT_PATH}/open-archiver/`.
+- **S3 storage** (`STORAGE_TYPE=s3`): data is stored in your bucket under the `open-archiver/` prefix.
+- **Metadata & indexes**: Postgres (`pgdata`), Valkey (`valkeydata`), and Meilisearch (`meilidata`) are stored in Docker volumes.
+
+### Resetting a Local Deployment (Destructive)
+
+- **Full reset**: `docker compose down -v`, then delete `${STORAGE_LOCAL_ROOT_PATH}/open-archiver` (and `${STORAGE_LOCAL_ROOT_PATH}/.open-archiver` if present).
+- **Settings-only reset**: remove the `pgdata` volume (keeps archived files but resets users/settings).
+- **Caution**: changing `ENCRYPTION_KEY` or `STORAGE_ENCRYPTION_KEY` makes existing encrypted data unreadable.
+
+## 🧪 Docker-only Development
+
+Use the dev compose override to run the app from source with hot reload (no host Node required).
+
+1.  **Configure your environment:**
+
+    ```bash
+    cp .env.example .env
+    ```
+
+2.  **Run the dev stack:**
+
+    ```bash
+    docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+    ```
+
+    Frontend runs on `http://localhost:3000`, API on `http://localhost:4000`.
+
+3.  **Optional workers:**
+
+    ```bash
+    docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile workers up
+    ```
 
 ## ⚙️ Data Source Configuration
 

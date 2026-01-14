@@ -58,5 +58,8 @@
 		"invalidFilePath": "Μη έγκυρη διαδρομή αρχείου",
 		"fileNotFound": "Το αρχείο δεν βρέθηκε",
 		"downloadError": "Σφάλμα κατά τη λήψη του αρχείου"
+	},
+	"compliance": {
+		"holdReleased": "Legal hold released successfully."
 	}
 }

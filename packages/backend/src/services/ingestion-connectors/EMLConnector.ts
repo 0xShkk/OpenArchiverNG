@@ -6,7 +6,7 @@ import type {
 	MailboxUser,
 } from '@open-archiver/types';
 import type { IEmailConnector } from '../EmailProviderFactory';
-import { simpleParser, ParsedMail, Attachment, AddressObject } from 'mailparser';
+import { Attachment, AddressObject } from 'mailparser';
 import { logger } from '../../config/logger';
 import { getThreadId } from './helpers/utils';
 import { StorageService } from '../StorageService';
@@ -15,18 +15,24 @@ import { createHash } from 'crypto';
 import { join, dirname } from 'path';
 import { createReadStream, promises as fs, createWriteStream } from 'fs';
 import * as yauzl from 'yauzl';
+import { HEADER_MAX_BYTES, parseEmailWithLimit } from '../../helpers/emailParser';
+import { streamToBuffer } from '../../helpers/streamToBuffer';
+import { SettingsService } from '../SettingsService';
 
-const streamToBuffer = (stream: Readable): Promise<Buffer> => {
-	return new Promise((resolve, reject) => {
-		const chunks: Buffer[] = [];
-		stream.on('data', (chunk) => chunks.push(chunk));
-		stream.on('error', reject);
-		stream.on('end', () => resolve(Buffer.concat(chunks)));
-	});
+const readFilePrefix = async (filePath: string, maxBytes: number): Promise<Buffer> => {
+	const handle = await fs.open(filePath, 'r');
+	try {
+		const buffer = Buffer.alloc(maxBytes);
+		const { bytesRead } = await handle.read(buffer, 0, maxBytes, 0);
+		return buffer.subarray(0, bytesRead);
+	} finally {
+		await handle.close();
+	}
 };
 
 export class EMLConnector implements IEmailConnector {
 	private storage: StorageService;
+	private settingsService = new SettingsService();
 
 	constructor(private credentials: EMLImportCredentials) {
 		this.storage = new StorageService();
@@ -68,6 +74,11 @@ export class EMLConnector implements IEmailConnector {
 		userEmail: string,
 		syncState?: SyncState | null
 	): AsyncGenerator<EmailObject | null> {
+		if (!this.credentials.uploadedFilePath) {
+			throw new Error('EML file path not provided.');
+		}
+		const settings = await this.settingsService.getSystemSettings();
+		const maxEmailBytes = settings.maxEmailBytes;
 		const fileStream = await this.storage.get(this.credentials.uploadedFilePath);
 		const tempDir = await fs.mkdtemp(join('/tmp', `eml-import-${new Date().getTime()}`));
 		const unzippedPath = join(tempDir, 'unzipped');
@@ -90,8 +101,29 @@ export class EMLConnector implements IEmailConnector {
 				if (file.endsWith('.eml')) {
 					try {
 						// logger.info({ file }, 'Processing EML file.');
-						const stream = createReadStream(file);
-						const content = await streamToBuffer(stream);
+						const stats = await fs.stat(file).catch(() => null);
+						const sizeBytes = stats?.size;
+						let content: Buffer;
+						let totalSize = sizeBytes ?? undefined;
+
+						if (sizeBytes && sizeBytes > maxEmailBytes) {
+							content = await readFilePrefix(file, HEADER_MAX_BYTES);
+						} else {
+							const stream = createReadStream(file);
+							try {
+								content = await streamToBuffer(stream, maxEmailBytes);
+							} catch (error) {
+								if (
+									error instanceof Error &&
+									error.message.includes('maximum allowed size')
+								) {
+									content = await readFilePrefix(file, HEADER_MAX_BYTES);
+									totalSize = maxEmailBytes + 1;
+								} else {
+									throw error;
+								}
+							}
+						}
 						// logger.info({ file, size: content.length }, 'Read file to buffer.');
 						let relativePath = file.substring(unzippedPath.length + 1);
 						if (dirname(relativePath) === '.') {
@@ -99,7 +131,12 @@ export class EMLConnector implements IEmailConnector {
 						} else {
 							relativePath = dirname(relativePath);
 						}
-						const emailObject = await this.parseMessage(content, relativePath);
+						const emailObject = await this.parseMessage(
+							content,
+							relativePath,
+							totalSize,
+							maxEmailBytes
+						);
 						// logger.info({ file, messageId: emailObject.id }, 'Parsed email message.');
 						yield emailObject;
 					} catch (error) {
@@ -174,15 +211,32 @@ export class EMLConnector implements IEmailConnector {
 		return arrayOfFiles;
 	}
 
-	private async parseMessage(emlBuffer: Buffer, path: string): Promise<EmailObject> {
-		const parsedEmail: ParsedMail = await simpleParser(emlBuffer);
+	private async parseMessage(
+		emlBuffer: Buffer,
+		path: string,
+		totalSize: number | undefined,
+		maxEmailBytes: number
+	): Promise<EmailObject> {
+		const { parsedEmail, isTruncated } = await parseEmailWithLimit(
+			emlBuffer,
+			maxEmailBytes,
+			totalSize
+		);
+		if (isTruncated) {
+			logger.warn(
+				{ sizeBytes: totalSize ?? emlBuffer.length },
+				'Email size exceeds parse limit. Using headers only.'
+			);
+		}
 
-		const attachments = parsedEmail.attachments.map((attachment: Attachment) => ({
-			filename: attachment.filename || 'untitled',
-			contentType: attachment.contentType,
-			size: attachment.size,
-			content: attachment.content as Buffer,
-		}));
+		const attachments = isTruncated
+			? []
+			: parsedEmail.attachments.map((attachment: Attachment) => ({
+					filename: attachment.filename || 'untitled',
+					contentType: attachment.contentType,
+					size: attachment.size,
+					content: attachment.content as Buffer,
+				}));
 
 		const mapAddresses = (
 			addresses: AddressObject | AddressObject[] | undefined
@@ -217,8 +271,8 @@ export class EMLConnector implements IEmailConnector {
 			cc: mapAddresses(parsedEmail.cc),
 			bcc: mapAddresses(parsedEmail.bcc),
 			subject: parsedEmail.subject || '',
-			body: parsedEmail.text || '',
-			html: parsedEmail.html || '',
+			body: isTruncated ? '' : parsedEmail.text || '',
+			html: isTruncated ? '' : parsedEmail.html || '',
 			headers: parsedEmail.headers,
 			attachments,
 			receivedAt: parsedEmail.date || new Date(),
@@ -228,6 +282,6 @@ export class EMLConnector implements IEmailConnector {
 	}
 
 	public getUpdatedSyncState(): SyncState {
-		return {};
+		return { lastSyncTimestamp: new Date().toISOString() };
 	}
 }

@@ -53,6 +53,8 @@ export interface EmailObject {
 	path?: string;
 	/** An array of tags or labels associated with the email. */
 	tags?: string[];
+	/** Provider-specific message identifier used for source-side actions (e.g., deletion). */
+	sourceId?: string;
 }
 
 /**
@@ -83,5 +85,6 @@ export interface EmailDocument {
 	}[];
 	timestamp: number;
 	ingestionSourceId: string;
+	isOnLegalHold?: boolean;
 	// other metadata
 }

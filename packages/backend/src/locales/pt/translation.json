@@ -58,5 +58,8 @@
 		"invalidFilePath": "Caminho de arquivo inválido",
 		"fileNotFound": "Arquivo não encontrado",
 		"downloadError": "Erro ao baixar o arquivo"
+	},
+	"compliance": {
+		"holdReleased": "Legal hold released successfully."
 	}
 }

@@ -58,5 +58,8 @@
 		"invalidFilePath": "Kehtetu faili tee",
 		"fileNotFound": "Faili ei leitud",
 		"downloadError": "Faili allalaadimisel ilmnes viga"
+	},
+	"compliance": {
+		"holdReleased": "Legal hold released successfully."
 	}
 }

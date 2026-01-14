@@ -36,11 +36,25 @@
 
 		{ href: '/dashboard/search', label: $t('app.layout.search'), position: 2 },
 		{
+			label: $t('app.layout.compliance'),
+			subMenu: [
+				{
+					href: '/dashboard/compliance/legal-holds',
+					label: $t('app.layout.legal_holds'),
+				},
+			],
+			position: 3,
+		},
+		{
 			label: $t('app.layout.admin'),
 			subMenu: [
 				{
 					href: '/dashboard/admin/jobs',
 					label: $t('app.jobs.jobs'),
+				},
+				{
+					href: '/dashboard/admin/archive-exports',
+					label: $t('app.layout.archive_exports'),
 				},
 				{
 					href: '/dashboard/settings/users',

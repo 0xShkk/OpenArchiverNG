@@ -1,9 +1,14 @@
-import { StorageConfig } from '@open-archiver/types';
+import { StorageConfig, StorageObjectLockConfig } from '@open-archiver/types';
 import 'dotenv/config';
 
 const storageType = process.env.STORAGE_TYPE;
 const encryptionKey = process.env.STORAGE_ENCRYPTION_KEY;
 const openArchiverFolderName = 'open-archiver';
+const immutabilityModeEnv = (process.env.STORAGE_IMMUTABILITY_MODE || 'off').toLowerCase();
+const immutabilityMode =
+	immutabilityModeEnv === 'hold' || immutabilityModeEnv === 'always'
+		? immutabilityModeEnv
+		: 'off';
 let storageConfig: StorageConfig;
 
 if (encryptionKey && !/^[a-fA-F0-9]{64}$/.test(encryptionKey)) {
@@ -19,6 +24,7 @@ if (storageType === 'local') {
 		rootPath: process.env.STORAGE_LOCAL_ROOT_PATH,
 		openArchiverFolderName: openArchiverFolderName,
 		encryptionKey: encryptionKey,
+		immutabilityMode,
 	};
 } else if (storageType === 's3') {
 	if (
@@ -29,6 +35,19 @@ if (storageType === 'local') {
 	) {
 		throw new Error('One or more S3 storage environment variables are not defined');
 	}
+	const objectLockModeEnv = process.env.STORAGE_S3_OBJECT_LOCK_MODE;
+	const objectLockDays = process.env.STORAGE_S3_OBJECT_LOCK_DAYS
+		? parseInt(process.env.STORAGE_S3_OBJECT_LOCK_DAYS, 10)
+		: undefined;
+	const objectLockMode =
+		objectLockModeEnv === 'GOVERNANCE' || objectLockModeEnv === 'COMPLIANCE'
+			? (objectLockModeEnv as StorageObjectLockConfig['mode'])
+			: undefined;
+	const objectLock =
+		objectLockMode && objectLockDays && objectLockDays > 0
+			? { mode: objectLockMode, retentionDays: objectLockDays }
+			: undefined;
+
 	storageConfig = {
 		type: 's3',
 		endpoint: process.env.STORAGE_S3_ENDPOINT,
@@ -39,6 +58,8 @@ if (storageType === 'local') {
 		forcePathStyle: process.env.STORAGE_S3_FORCE_PATH_STYLE === 'true',
 		openArchiverFolderName: openArchiverFolderName,
 		encryptionKey: encryptionKey,
+		immutabilityMode,
+		objectLock,
 	};
 } else {
 	throw new Error(`Invalid STORAGE_TYPE: ${storageType}`);

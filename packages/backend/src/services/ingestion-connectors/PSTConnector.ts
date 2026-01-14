@@ -7,7 +7,7 @@ import type {
 } from '@open-archiver/types';
 import type { IEmailConnector } from '../EmailProviderFactory';
 import { PSTFile, PSTFolder, PSTMessage } from 'pst-extractor';
-import { simpleParser, ParsedMail, Attachment, AddressObject } from 'mailparser';
+import { Attachment, AddressObject } from 'mailparser';
 import { logger } from '../../config/logger';
 import { getThreadId } from './helpers/utils';
 import { StorageService } from '../StorageService';
@@ -15,6 +15,8 @@ import { Readable } from 'stream';
 import { createHash } from 'crypto';
 import { join } from 'path';
 import { createWriteStream, promises as fs } from 'fs';
+import { parseEmailWithLimit } from '../../helpers/emailParser';
+import { SettingsService } from '../SettingsService';
 
 // We have to hardcode names for deleted and trash folders here as current lib doesn't support looking into PST properties.
 const DELETED_FOLDERS = new Set([
@@ -106,6 +108,7 @@ const JUNK_FOLDERS = new Set([
 
 export class PSTConnector implements IEmailConnector {
 	private storage: StorageService;
+	private settingsService = new SettingsService();
 
 	constructor(private credentials: PSTImportCredentials) {
 		this.storage = new StorageService();
@@ -128,6 +131,8 @@ export class PSTConnector implements IEmailConnector {
 	}
 
 	public async testConnection(): Promise<boolean> {
+		let pstFile: PSTFile | null = null;
+		let tempDir: string | null = null;
 		try {
 			if (!this.credentials.uploadedFilePath) {
 				throw Error('PST file path not provided.');
@@ -139,10 +144,23 @@ export class PSTConnector implements IEmailConnector {
 			if (!fileExist) {
 				throw Error('PST file upload not finished yet, please wait.');
 			}
+			const loadResult = await this.loadPstFile();
+			pstFile = loadResult.pstFile;
+			tempDir = loadResult.tempDir;
+			pstFile.getRootFolder();
 			return true;
 		} catch (error) {
 			logger.error({ error, credentials: this.credentials }, 'PST file validation failed.');
-			throw error;
+			const message = error instanceof Error ? error.message : String(error);
+			const hint = message.includes('PSTFile::findBtreeItem')
+				? 'PST file appears to be corrupted or unsupported. Try re-exporting as a Unicode PST.'
+				: message;
+			throw new Error(`PST file validation failed: ${hint}`);
+		} finally {
+			pstFile?.close();
+			if (tempDir) {
+				await fs.rm(tempDir, { recursive: true, force: true });
+			}
 		}
 	}
 
@@ -187,11 +205,16 @@ export class PSTConnector implements IEmailConnector {
 		let pstFile: PSTFile | null = null;
 		let tempDir: string | null = null;
 		try {
+			if (!this.credentials.uploadedFilePath) {
+				throw new Error('PST file path not provided.');
+			}
+			const settings = await this.settingsService.getSystemSettings();
+			const maxEmailBytes = settings.maxEmailBytes;
 			const loadResult = await this.loadPstFile();
 			pstFile = loadResult.pstFile;
 			tempDir = loadResult.tempDir;
 			const root = pstFile.getRootFolder();
-			yield* this.processFolder(root, '', userEmail);
+			yield* this.processFolder(root, '', userEmail, maxEmailBytes);
 		} catch (error) {
 			logger.error({ error }, 'Failed to fetch email.');
 			throw error;
@@ -214,7 +237,8 @@ export class PSTConnector implements IEmailConnector {
 	private async *processFolder(
 		folder: PSTFolder,
 		currentPath: string,
-		userEmail: string
+		userEmail: string,
+		maxEmailBytes: number
 	): AsyncGenerator<EmailObject | null> {
 		const folderName = folder.displayName.toLowerCase();
 		if (DELETED_FOLDERS.has(folderName) || JUNK_FOLDERS.has(folderName)) {
@@ -227,7 +251,7 @@ export class PSTConnector implements IEmailConnector {
 		if (folder.contentCount > 0) {
 			let email: PSTMessage | null = folder.getNextChild();
 			while (email != null) {
-				yield await this.parseMessage(email, newPath, userEmail);
+				yield await this.parseMessage(email, newPath, userEmail, maxEmailBytes);
 				try {
 					email = folder.getNextChild();
 				} catch (error) {
@@ -239,7 +263,7 @@ export class PSTConnector implements IEmailConnector {
 
 		if (folder.hasSubfolders) {
 			for (const subFolder of folder.getSubFolders()) {
-				yield* this.processFolder(subFolder, newPath, userEmail);
+				yield* this.processFolder(subFolder, newPath, userEmail, maxEmailBytes);
 			}
 		}
 	}
@@ -247,18 +271,30 @@ export class PSTConnector implements IEmailConnector {
 	private async parseMessage(
 		msg: PSTMessage,
 		path: string,
-		userEmail: string
+		userEmail: string,
+		maxEmailBytes: number
 	): Promise<EmailObject> {
 		const emlContent = await this.constructEml(msg);
 		const emlBuffer = Buffer.from(emlContent, 'utf-8');
-		const parsedEmail: ParsedMail = await simpleParser(emlBuffer);
+		const { parsedEmail, isTruncated } = await parseEmailWithLimit(
+			emlBuffer,
+			maxEmailBytes
+		);
+		if (isTruncated) {
+			logger.warn(
+				{ sizeBytes: emlBuffer.length },
+				'Email size exceeds parse limit. Using headers only.'
+			);
+		}
 
-		const attachments = parsedEmail.attachments.map((attachment: Attachment) => ({
-			filename: attachment.filename || 'untitled',
-			contentType: attachment.contentType,
-			size: attachment.size,
-			content: attachment.content as Buffer,
-		}));
+		const attachments = isTruncated
+			? []
+			: parsedEmail.attachments.map((attachment: Attachment) => ({
+					filename: attachment.filename || 'untitled',
+					contentType: attachment.contentType,
+					size: attachment.size,
+					content: attachment.content as Buffer,
+				}));
 
 		const mapAddresses = (
 			addresses: AddressObject | AddressObject[] | undefined
@@ -299,8 +335,8 @@ export class PSTConnector implements IEmailConnector {
 			cc: mapAddresses(parsedEmail.cc),
 			bcc: mapAddresses(parsedEmail.bcc),
 			subject: parsedEmail.subject || '',
-			body: parsedEmail.text || '',
-			html: parsedEmail.html || '',
+			body: isTruncated ? '' : parsedEmail.text || '',
+			html: isTruncated ? '' : parsedEmail.html || '',
 			headers: parsedEmail.headers,
 			attachments,
 			receivedAt: parsedEmail.date || new Date(),
@@ -398,6 +434,6 @@ export class PSTConnector implements IEmailConnector {
 	}
 
 	public getUpdatedSyncState(): SyncState {
-		return {};
+		return { lastSyncTimestamp: new Date().toISOString() };
 	}
 }

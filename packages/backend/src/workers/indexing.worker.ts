@@ -1,6 +1,7 @@
 import { Worker } from 'bullmq';
 import { connection } from '../config/redis';
 import indexEmailBatchProcessor from '../jobs/processors/index-email-batch.processor';
+import { config } from '../config';
 
 const processor = async (job: any) => {
 	switch (job.name) {
@@ -13,6 +14,11 @@ const processor = async (job: any) => {
 
 const worker = new Worker('indexing', processor, {
 	connection,
+	concurrency: config.meili.indexingWorkerConcurrency,
+	lockDuration: config.app.queueLockDurationMs,
+	lockRenewTime: config.app.queueLockRenewTimeMs,
+	stalledInterval: config.app.queueStalledIntervalMs,
+	maxStalledCount: config.app.queueMaxStalledCount,
 	removeOnComplete: {
 		count: 100, // keep last 100 jobs
 	},

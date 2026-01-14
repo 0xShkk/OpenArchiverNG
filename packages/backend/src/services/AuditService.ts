@@ -1,10 +1,12 @@
 import { db, Database } from '../database';
 import * as schema from '../database/schema';
+import { auditLogVerifications } from '../database/schema';
 import {
 	AuditLogEntry,
 	CreateAuditLogEntry,
 	GetAuditLogsOptions,
 	GetAuditLogsResponse,
+	AuditLogVerification,
 } from '@open-archiver/types';
 import { desc, sql, asc, and, gte, lte, eq } from 'drizzle-orm';
 import { createHash } from 'crypto';
@@ -152,9 +154,7 @@ export class AuditService {
 		const chunkSize = 1000;
 		let offset = 0;
 		let previousHash: string | null = null;
-		/**
-		 * TODO: create job for audit log verification, generate audit report (new DB table)
-		 */
+		// Verification jobs are scheduled via the compliance worker; results are stored separately.
 		while (true) {
 			const logs = await db.query.auditLogs.findMany({
 				orderBy: [asc(schema.auditLogs.id)],
@@ -195,5 +195,48 @@ export class AuditService {
 			message:
 				'Audit log integrity verified successfully. The logs are not tempered with and the log chain is complete.',
 		};
+	}
+
+	public async recordAuditVerification(
+		result: { ok: boolean; message: string; logId?: number },
+		actorIdentifier?: string
+	): Promise<AuditLogVerification> {
+		const [record] = await db
+			.insert(auditLogVerifications)
+			.values({
+				ok: result.ok,
+				message: result.message,
+				failedLogId: result.logId ?? null,
+				completedAt: new Date(),
+				verifiedByIdentifier: actorIdentifier ?? null,
+			})
+			.returning();
+
+		return {
+			id: record.id,
+			startedAt: record.startedAt.toISOString(),
+			completedAt: record.completedAt ? record.completedAt.toISOString() : null,
+			ok: record.ok,
+			message: record.message ?? null,
+			failedLogId: record.failedLogId ?? null,
+			verifiedByIdentifier: record.verifiedByIdentifier ?? null,
+		};
+	}
+
+	public async getAuditLogVerifications(limit = 5): Promise<AuditLogVerification[]> {
+		const records = await db.query.auditLogVerifications.findMany({
+			orderBy: [desc(auditLogVerifications.startedAt)],
+			limit,
+		});
+
+		return records.map((record) => ({
+			id: record.id,
+			startedAt: record.startedAt.toISOString(),
+			completedAt: record.completedAt ? record.completedAt.toISOString() : null,
+			ok: record.ok,
+			message: record.message ?? null,
+			failedLogId: record.failedLogId ?? null,
+			verifiedByIdentifier: record.verifiedByIdentifier ?? null,
+		}));
 	}
 }

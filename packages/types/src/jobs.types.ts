@@ -91,3 +91,45 @@ export interface IGetQueueJobsRequestQuery {
  * Response body for the endpoint that retrieves jobs from a specific queue.
  */
 export type IGetQueueJobsResponse = IQueueDetails;
+
+/**
+ * Stored schedule settings for repeatable jobs.
+ */
+export interface JobScheduleSettings {
+	cron: string;
+	enabled: boolean;
+}
+
+export type JobScheduleSettingsMap = Record<string, JobScheduleSettings>;
+
+/**
+ * A configured schedule with runtime state.
+ */
+export interface JobSchedule {
+	id: string;
+	queueName: string;
+	jobName: string;
+	cron: string;
+	enabled: boolean;
+	configured: boolean;
+	isScheduled: boolean;
+	nextRunAt?: number;
+	eligible?: boolean;
+}
+
+export interface IGetJobSchedulesResponse {
+	schedules: JobSchedule[];
+}
+
+export interface IJobScheduleRequestParams {
+	scheduleId: string;
+}
+
+export interface ICreateJobScheduleRequestBody {
+	cron?: string;
+}
+
+export interface IUpdateJobScheduleRequestBody {
+	cron?: string;
+	enabled?: boolean;
+}

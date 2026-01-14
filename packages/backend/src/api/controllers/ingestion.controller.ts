@@ -112,7 +112,7 @@ export class IngestionController {
 
 	public delete = async (req: Request, res: Response): Promise<Response> => {
 		try {
-			checkDeletionEnabled();
+			await checkDeletionEnabled();
 			const { id } = req.params;
 			const userId = req.user?.sub;
 			if (!userId) {
@@ -129,6 +129,9 @@ export class IngestionController {
 			if (error instanceof Error && error.message === 'Ingestion source not found') {
 				return res.status(404).json({ message: req.t('ingestion.notFound') });
 			} else if (error instanceof Error) {
+				if (error.message.includes('legal hold')) {
+					return res.status(409).json({ message: error.message });
+				}
 				return res.status(400).json({ message: error.message });
 			}
 			return res.status(500).json({ message: req.t('errors.internalServerError') });

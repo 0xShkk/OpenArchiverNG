@@ -8,6 +8,7 @@
 	import * as Pagination from '$lib/components/ui/pagination/index.js';
 	import ChevronLeft from 'lucide-svelte/icons/chevron-left';
 	import ChevronRight from 'lucide-svelte/icons/chevron-right';
+	import { Badge } from '$lib/components/ui/badge';
 
 	let { data }: { data: PageData } = $props();
 
@@ -58,6 +59,7 @@
 			<Table.Row>
 				<Table.Head>{$t('app.archived_emails_page.date')}</Table.Head>
 				<Table.Head>{$t('app.archived_emails_page.subject')}</Table.Head>
+				<Table.Head>{$t('app.archived_emails_page.legal_hold')}</Table.Head>
 				<Table.Head>{$t('app.archived_emails_page.sender')}</Table.Head>
 				<Table.Head>{$t('app.archived_emails_page.inbox')}</Table.Head>
 				<Table.Head>{$t('app.archived_emails_page.path')}</Table.Head>
@@ -76,6 +78,15 @@
 									{email.subject}
 								</a>
 							</div>
+						</Table.Cell>
+						<Table.Cell>
+							{#if email.isOnLegalHold}
+								<Badge variant="secondary">
+									{$t('app.archived_emails_page.on_hold')}
+								</Badge>
+							{:else}
+								<span class="text-muted-foreground">-</span>
+							{/if}
 						</Table.Cell>
 						<Table.Cell>
 							{email.senderEmail || email.senderName}
@@ -99,7 +110,7 @@
 				{/each}
 			{:else}
 				<Table.Row>
-					<Table.Cell colspan={5} class="text-center"
+					<Table.Cell colspan={7} class="text-center"
 						>{$t('app.archived_emails_page.no_emails_found')}</Table.Cell
 					>
 				</Table.Row>

@@ -20,6 +20,26 @@ export const createJobsRouter = (authService: AuthService): Router => {
 		requirePermission('manage', 'all', 'user.requiresSuperAdminRole'),
 		jobsController.getQueueJobs
 	);
+	router.get(
+		'/schedules',
+		requirePermission('manage', 'all', 'user.requiresSuperAdminRole'),
+		jobsController.getSchedules
+	);
+	router.post(
+		'/schedules/:scheduleId',
+		requirePermission('manage', 'all', 'user.requiresSuperAdminRole'),
+		jobsController.createSchedule
+	);
+	router.patch(
+		'/schedules/:scheduleId',
+		requirePermission('manage', 'all', 'user.requiresSuperAdminRole'),
+		jobsController.updateSchedule
+	);
+	router.delete(
+		'/schedules/:scheduleId',
+		requirePermission('manage', 'all', 'user.requiresSuperAdminRole'),
+		jobsController.deleteSchedule
+	);
 
 	return router;
 };

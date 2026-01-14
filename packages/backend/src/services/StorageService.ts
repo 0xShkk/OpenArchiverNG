@@ -3,8 +3,7 @@ import { LocalFileSystemProvider } from './storage/LocalFileSystemProvider';
 import { S3StorageProvider } from './storage/S3StorageProvider';
 import { config } from '../config/index';
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
-import { streamToBuffer } from '../helpers/streamToBuffer';
-import { Readable } from 'stream';
+import { Readable, PassThrough } from 'stream';
 
 /**
  *  A unique identifier for Open Archiver encrypted files. This value SHOULD NOT BE ALTERED in future development to ensure compatibility.
@@ -15,8 +14,10 @@ export class StorageService implements IStorageProvider {
 	private provider: IStorageProvider;
 	private encryptionKey: Buffer | null = null;
 	private readonly algorithm = 'aes-256-cbc';
+	private readonly immutabilityMode: 'off' | 'hold' | 'always';
 
 	constructor(storageConfig: StorageConfig = config.storage) {
+		this.immutabilityMode = storageConfig.immutabilityMode || 'off';
 		if (storageConfig.encryptionKey) {
 			this.encryptionKey = Buffer.from(storageConfig.encryptionKey, 'hex');
 		}
@@ -33,52 +34,65 @@ export class StorageService implements IStorageProvider {
 		}
 	}
 
-	private async encrypt(content: Buffer): Promise<Buffer> {
+	private encryptStream(input: NodeJS.ReadableStream): NodeJS.ReadableStream {
 		if (!this.encryptionKey) {
-			return content;
+			return input;
 		}
+
 		const iv = randomBytes(16);
 		const cipher = createCipheriv(this.algorithm, this.encryptionKey, iv);
-		const encrypted = Buffer.concat([cipher.update(content), cipher.final()]);
-		return Buffer.concat([ENCRYPTION_PREFIX, iv, encrypted]);
+		const output = new PassThrough();
+
+		output.write(Buffer.concat([ENCRYPTION_PREFIX, iv]));
+
+		input.on('error', (error) => output.emit('error', error));
+		cipher.on('error', (error) => output.emit('error', error));
+
+		input.pipe(cipher).pipe(output);
+		return output;
 	}
 
-	private async decrypt(content: Buffer): Promise<Buffer> {
-		if (!this.encryptionKey) {
-			return content;
-		}
-		const prefix = content.subarray(0, ENCRYPTION_PREFIX.length);
-		if (!prefix.equals(ENCRYPTION_PREFIX)) {
-			// File is not encrypted, return as is
-			return content;
-		}
+	private async readPrefix(stream: NodeJS.ReadableStream, length: number): Promise<Buffer> {
+		return new Promise((resolve, reject) => {
+			const chunks: Buffer[] = [];
+			let totalLength = 0;
 
-		try {
-			const iv = content.subarray(ENCRYPTION_PREFIX.length, ENCRYPTION_PREFIX.length + 16);
-			const encrypted = content.subarray(ENCRYPTION_PREFIX.length + 16);
-			const decipher = createDecipheriv(this.algorithm, this.encryptionKey, iv);
-			return Buffer.concat([decipher.update(encrypted), decipher.final()]);
-		} catch (error) {
-			// Decryption failed for a file that has the prefix.
-			// This indicates a corrupted file or a wrong key.
-			throw new Error('Failed to decrypt file. It may be corrupted or the key is incorrect.');
-		}
+			const onData = (chunk: Buffer) => {
+				const bufferChunk = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+				chunks.push(bufferChunk);
+				totalLength += bufferChunk.length;
+
+				if (totalLength >= length) {
+					stream.pause();
+					stream.removeListener('data', onData);
+					const combined = Buffer.concat(chunks);
+					const prefix = combined.subarray(0, length);
+					const remaining = combined.subarray(length);
+					if (remaining.length > 0) {
+						stream.unshift(remaining);
+					}
+					resolve(prefix);
+				}
+			};
+
+			stream.on('data', onData);
+			stream.on('error', reject);
+			stream.on('end', () => resolve(Buffer.concat(chunks)));
+		});
 	}
 
 	async put(path: string, content: Buffer | NodeJS.ReadableStream): Promise<void> {
-		const buffer =
-			content instanceof Buffer
-				? content
-				: await streamToBuffer(content as NodeJS.ReadableStream);
-		const encryptedContent = await this.encrypt(buffer);
-		return this.provider.put(path, encryptedContent);
+		if (!this.encryptionKey) {
+			return this.provider.put(path, content);
+		}
+
+		const inputStream = Buffer.isBuffer(content) ? Readable.from(content) : content;
+		const encryptedStream = this.encryptStream(inputStream);
+		return this.provider.put(path, encryptedStream);
 	}
 
 	async get(path: string): Promise<NodeJS.ReadableStream> {
-		const stream = await this.provider.get(path);
-		const buffer = await streamToBuffer(stream);
-		const decryptedContent = await this.decrypt(buffer);
-		return Readable.from(decryptedContent);
+		return this.getStream(path);
 	}
 
 	public async getStream(path: string): Promise<NodeJS.ReadableStream> {
@@ -87,67 +101,28 @@ export class StorageService implements IStorageProvider {
 			return stream;
 		}
 
-		// For encrypted files, we need to read the prefix and IV first.
-		// This part still buffers a small, fixed amount of data, which is acceptable.
-		const prefixAndIvBuffer = await new Promise<Buffer>((resolve, reject) => {
-			const chunks: Buffer[] = [];
-			let totalLength = 0;
-			const targetLength = ENCRYPTION_PREFIX.length + 16;
+		const prefixLength = ENCRYPTION_PREFIX.length + 16;
+		const prefixBuffer = await this.readPrefix(stream, prefixLength);
 
-			const onData = (chunk: Buffer) => {
-				chunks.push(chunk);
-				totalLength += chunk.length;
-				if (totalLength >= targetLength) {
-					stream.removeListener('data', onData);
-					resolve(Buffer.concat(chunks));
-				}
-			};
+		if (prefixBuffer.length < prefixLength) {
+			return Readable.from(prefixBuffer);
+		}
 
-			stream.on('data', onData);
-			stream.on('error', reject);
-			stream.on('end', () => {
-				// Handle cases where the file is smaller than the prefix + IV
-				if (totalLength < targetLength) {
-					resolve(Buffer.concat(chunks));
-				}
-			});
-		});
-
-		const prefix = prefixAndIvBuffer.subarray(0, ENCRYPTION_PREFIX.length);
+		const prefix = prefixBuffer.subarray(0, ENCRYPTION_PREFIX.length);
 		if (!prefix.equals(ENCRYPTION_PREFIX)) {
-			// File is not encrypted, return a new stream containing the buffered prefix and the rest of the original stream
-			const combinedStream = new Readable({
-				read() {},
-			});
-			combinedStream.push(prefixAndIvBuffer);
-			stream.on('data', (chunk) => {
-				combinedStream.push(chunk);
-			});
-			stream.on('end', () => {
-				combinedStream.push(null); // No more data
-			});
-			stream.on('error', (err) => {
-				combinedStream.emit('error', err);
-			});
-			return combinedStream;
+			stream.unshift(prefixBuffer);
+			stream.resume();
+			return stream;
 		}
 
 		try {
-			const iv = prefixAndIvBuffer.subarray(
+			const iv = prefixBuffer.subarray(
 				ENCRYPTION_PREFIX.length,
 				ENCRYPTION_PREFIX.length + 16
 			);
 			const decipher = createDecipheriv(this.algorithm, this.encryptionKey, iv);
-
-			// Push the remaining part of the initial buffer to the decipher
-			const remainingBuffer = prefixAndIvBuffer.subarray(ENCRYPTION_PREFIX.length + 16);
-			if (remainingBuffer.length > 0) {
-				decipher.write(remainingBuffer);
-			}
-
-			// Pipe the rest of the stream
 			stream.pipe(decipher);
-
+			stream.resume();
 			return decipher;
 		} catch (error) {
 			throw new Error('Failed to decrypt file. It may be corrupted or the key is incorrect.');
@@ -155,6 +130,11 @@ export class StorageService implements IStorageProvider {
 	}
 
 	delete(path: string): Promise<void> {
+		if (this.immutabilityMode === 'always') {
+			return Promise.reject(
+				new Error('Storage immutability is enabled. Deletion is blocked.')
+			);
+		}
 		return this.provider.delete(path);
 	}
 

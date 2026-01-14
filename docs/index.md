@@ -14,8 +14,8 @@ Open Archiver provides a robust, self-hosted solution for archiving, storing, in
 - **Secure & Efficient Storage**: Emails are stored in the standard `.eml` format. The system uses deduplication and compression to minimize storage costs. All data is encrypted at rest.
 - **Pluggable Storage Backends**: Support both local filesystem storage and S3-compatible object storage (like AWS S3 or MinIO).
 - **Powerful Search & eDiscovery**: A high-performance search engine indexes the full text of emails and attachments (PDF, DOCX, etc.).
-- **Compliance & Retention**: Define granular retention policies to automatically manage the lifecycle of your data. Place legal holds on communications to prevent deletion during litigation (TBD).
-- **Comprehensive Auditing**: An immutable audit trail logs all system activities, ensuring you have a clear record of who accessed what and when (TBD).
+- **Compliance & Legal Holds**: Create cases, custodians, and legal holds to preserve communications during investigations. Retention policy enforcement is planned.
+- **Comprehensive Auditing**: An immutable audit trail logs system activities, providing traceability of administrative actions.
 
 ## Installation 🚀
 

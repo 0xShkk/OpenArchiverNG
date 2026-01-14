@@ -6,9 +6,11 @@ import { pipeline } from 'stream/promises';
 
 export class LocalFileSystemProvider implements IStorageProvider {
 	private readonly rootPath: string;
+	private readonly immutabilityMode: 'off' | 'hold' | 'always';
 
 	constructor(config: LocalStorageConfig) {
 		this.rootPath = config.rootPath;
+		this.immutabilityMode = config.immutabilityMode || 'off';
 	}
 
 	async put(filePath: string, content: Buffer | NodeJS.ReadableStream): Promise<void> {
@@ -21,6 +23,14 @@ export class LocalFileSystemProvider implements IStorageProvider {
 		} else {
 			const writeStream = createWriteStream(fullPath);
 			await pipeline(content, writeStream);
+		}
+
+		if (this.immutabilityMode !== 'off') {
+			try {
+				await fs.chmod(fullPath, 0o444);
+			} catch {
+				// Best-effort immutability for local storage.
+			}
 		}
 	}
 

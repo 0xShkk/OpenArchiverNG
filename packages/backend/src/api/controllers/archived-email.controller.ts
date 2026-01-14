@@ -60,7 +60,7 @@ export class ArchivedEmailController {
 
 	public deleteArchivedEmail = async (req: Request, res: Response): Promise<Response> => {
 		try {
-			checkDeletionEnabled();
+			await checkDeletionEnabled();
 			const { id } = req.params;
 			const userId = req.user?.sub;
 			if (!userId) {
@@ -77,6 +77,9 @@ export class ArchivedEmailController {
 			if (error instanceof Error) {
 				if (error.message === 'Archived email not found') {
 					return res.status(404).json({ message: req.t('archivedEmail.notFound') });
+				}
+				if (error.message.includes('legal hold')) {
+					return res.status(409).json({ message: error.message });
 				}
 				return res.status(500).json({ message: error.message });
 			}

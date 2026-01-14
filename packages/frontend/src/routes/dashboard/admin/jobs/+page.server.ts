@@ -1,24 +1,37 @@
 import { api } from '$lib/server/api';
 import { error, type NumericRange } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import type { IGetQueuesResponse } from '@open-archiver/types';
+import type { IGetJobSchedulesResponse, IGetQueuesResponse } from '@open-archiver/types';
 
 export const load: PageServerLoad = async (event) => {
 	try {
-		const response = await api('/jobs/queues', event);
+		const [queuesResponse, schedulesResponse] = await Promise.all([
+			api('/jobs/queues', event),
+			api('/jobs/schedules', event),
+		]);
 
-		if (!response.ok) {
-			const responseText = await response.json();
+		if (!queuesResponse.ok) {
+			const responseText = await queuesResponse.json();
 			throw error(
-				response.status as NumericRange<400, 599>,
+				queuesResponse.status as NumericRange<400, 599>,
 				responseText.message || 'Failed to fetch job queues.'
 			);
 		}
 
-		const data: IGetQueuesResponse = await response.json();
+		if (!schedulesResponse.ok) {
+			const responseText = await schedulesResponse.json();
+			throw error(
+				schedulesResponse.status as NumericRange<400, 599>,
+				responseText.message || 'Failed to fetch job schedules.'
+			);
+		}
+
+		const queuesData: IGetQueuesResponse = await queuesResponse.json();
+		const schedulesData: IGetJobSchedulesResponse = await schedulesResponse.json();
 
 		return {
-			queues: data.queues,
+			queues: queuesData.queues,
+			schedules: schedulesData.schedules,
 		};
 	} catch (e: any) {
 		console.error('Failed to load job queues:', e);

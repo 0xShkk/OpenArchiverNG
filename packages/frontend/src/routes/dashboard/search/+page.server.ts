@@ -8,15 +8,17 @@ async function performSearch(
 	keywords: string,
 	page: number,
 	matchingStrategy: MatchingStrategy,
+	holdOnly: boolean,
 	event: RequestEvent
 ) {
 	if (!keywords) {
-		return { searchResult: null, keywords: '', page: 1, matchingStrategy: 'last' };
+		return { searchResult: null, keywords: '', page: 1, matchingStrategy: 'last', holdOnly };
 	}
 
 	try {
+		const holdParam = holdOnly ? '&holdOnly=true' : '';
 		const response = await api(
-			`/search?keywords=${keywords}&page=${page}&limit=10&matchingStrategy=${matchingStrategy}`,
+			`/search?keywords=${keywords}&page=${page}&limit=10&matchingStrategy=${matchingStrategy}${holdParam}`,
 			event,
 			{
 				method: 'GET',
@@ -25,17 +27,25 @@ async function performSearch(
 
 		if (!response.ok) {
 			const error = await response.json();
-			return { searchResult: null, keywords, page, matchingStrategy, error: error.message };
+			return {
+				searchResult: null,
+				keywords,
+				page,
+				matchingStrategy,
+				holdOnly,
+				error: error.message,
+			};
 		}
 
 		const searchResult = (await response.json()) as SearchResult;
-		return { searchResult, keywords, page, matchingStrategy };
+		return { searchResult, keywords, page, matchingStrategy, holdOnly };
 	} catch (error) {
 		return {
 			searchResult: null,
 			keywords,
 			page,
 			matchingStrategy,
+			holdOnly,
 			error: error instanceof Error ? error.message : 'Unknown error',
 		};
 	}
@@ -46,5 +56,6 @@ export const load: PageServerLoad = async (event) => {
 	const page = parseInt(event.url.searchParams.get('page') || '1');
 	const matchingStrategy = (event.url.searchParams.get('matchingStrategy') ||
 		'last') as MatchingStrategy;
-	return performSearch(keywords, page, matchingStrategy, event);
+	const holdOnly = event.url.searchParams.get('holdOnly') === 'true';
+	return performSearch(keywords, page, matchingStrategy, holdOnly, event);
 };

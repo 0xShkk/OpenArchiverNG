@@ -66,5 +66,8 @@
 	},
 	"api": {
 		"requestBodyInvalid": "Invalid request body."
+	},
+	"compliance": {
+		"holdReleased": "Legal hold released successfully."
 	}
 }

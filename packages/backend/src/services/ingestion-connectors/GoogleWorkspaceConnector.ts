@@ -6,6 +6,7 @@ import type {
 	EmailAddress,
 	SyncState,
 	MailboxUser,
+	GmailDeleteMode,
 } from '@open-archiver/types';
 import type { IEmailConnector } from '../EmailProviderFactory';
 import { logger } from '../../config/logger';
@@ -232,6 +233,7 @@ export class GoogleWorkspaceConnector implements IEmailConnector {
 										receivedAt: parsedEmail.date || new Date(),
 										path: labels.path,
 										tags: labels.tags,
+										sourceId: msgResponse.data.id || undefined,
 									};
 								}
 							} catch (error: any) {
@@ -336,6 +338,7 @@ export class GoogleWorkspaceConnector implements IEmailConnector {
 								receivedAt: parsedEmail.date || new Date(),
 								path: labels.path,
 								tags: labels.tags,
+								sourceId: msgResponse.data.id || undefined,
 							};
 						}
 					} catch (error: any) {
@@ -362,7 +365,7 @@ export class GoogleWorkspaceConnector implements IEmailConnector {
 
 	public getUpdatedSyncState(userEmail: string): SyncState {
 		if (!this.newHistoryId) {
-			return {};
+			return { lastSyncTimestamp: new Date().toISOString() };
 		}
 		return {
 			google: {
@@ -370,7 +373,29 @@ export class GoogleWorkspaceConnector implements IEmailConnector {
 					historyId: this.newHistoryId,
 				},
 			},
+			lastSyncTimestamp: new Date().toISOString(),
 		};
+	}
+
+	public async deleteFromSource(
+		email: EmailObject,
+		userEmail: string,
+		options?: { mode?: GmailDeleteMode }
+	): Promise<void> {
+		if (!email.sourceId) {
+			logger.warn({ userEmail }, 'Gmail delete skipped: missing message ID.');
+			return;
+		}
+		const authClient = this.getAuthClient(userEmail, [
+			'https://www.googleapis.com/auth/gmail.modify',
+		]);
+		const gmail = google.gmail({ version: 'v1', auth: authClient });
+		const mode = options?.mode ?? 'permanent';
+		if (mode === 'trash') {
+			await gmail.users.messages.trash({ userId: userEmail, id: email.sourceId });
+			return;
+		}
+		await gmail.users.messages.delete({ userId: userEmail, id: email.sourceId });
 	}
 
 	private labelCache: Map<string, gmail_v1.Schema$Label> = new Map();

@@ -3,6 +3,7 @@ import type {
 	Microsoft365Credentials,
 	EmailObject,
 	EmailAddress,
+	GmailDeleteMode,
 	SyncState,
 	MailboxUser,
 } from '@open-archiver/types';
@@ -319,12 +320,25 @@ export class MicrosoftConnector implements IEmailConnector {
 			attachments,
 			receivedAt: parsedEmail.date || new Date(),
 			path,
+			sourceId: messageId,
 		};
+	}
+
+	public async deleteFromSource(
+		email: EmailObject,
+		userEmail: string,
+		_options?: { mode?: GmailDeleteMode }
+	): Promise<void> {
+		if (!email.sourceId) {
+			logger.warn({ userEmail }, 'Microsoft delete skipped: missing message ID.');
+			return;
+		}
+		await this.graphClient.api(`/users/${userEmail}/messages/${email.sourceId}`).delete();
 	}
 
 	public getUpdatedSyncState(userEmail: string): SyncState {
 		if (Object.keys(this.newDeltaTokens).length === 0) {
-			return {};
+			return { lastSyncTimestamp: new Date().toISOString() };
 		}
 		return {
 			microsoft: {
@@ -332,6 +346,7 @@ export class MicrosoftConnector implements IEmailConnector {
 					deltaTokens: this.newDeltaTokens,
 				},
 			},
+			lastSyncTimestamp: new Date().toISOString(),
 		};
 	}
 }

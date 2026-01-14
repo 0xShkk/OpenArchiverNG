@@ -1,5 +1,6 @@
 import { Queue, FlowProducer } from 'bullmq';
 import { connection } from '../config/redis';
+import { config } from '../config';
 
 export const flowProducer = new FlowProducer({ connection });
 
@@ -10,6 +11,7 @@ const defaultJobOptions = {
 		type: 'exponential',
 		delay: 1000,
 	},
+	timeout: config.app.queueJobTimeoutMs,
 	removeOnComplete: {
 		count: 1000,
 	},
@@ -24,6 +26,11 @@ export const ingestionQueue = new Queue('ingestion', {
 });
 
 export const indexingQueue = new Queue('indexing', {
+	connection,
+	defaultJobOptions,
+});
+
+export const complianceQueue = new Queue('compliance', {
 	connection,
 	defaultJobOptions,
 });
