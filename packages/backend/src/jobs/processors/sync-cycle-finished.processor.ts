@@ -1,15 +1,7 @@
 import { Job } from 'bullmq';
 import { IngestionService } from '../../services/IngestionService';
 import { logger } from '../../config/logger';
-import {
-	SyncState,
-	ProcessMailboxError,
-	IngestionStatus,
-	IngestionProvider,
-} from '@open-archiver/types';
-import { db } from '../../database';
-import { ingestionSources } from '../../database/schema';
-import { eq } from 'drizzle-orm';
+import { SyncState, ProcessMailboxError, IngestionStatus } from '@open-archiver/types';
 import { deepmerge } from 'deepmerge-ts';
 
 interface ISyncCycleFinishedJob {
@@ -66,6 +58,10 @@ export default async (job: Job<ISyncCycleFinishedJob, any, string>) => {
 		const rateLimitMessage = successfulJobs.find(
 			(j) => j.statusMessage && j.statusMessage.includes('rate limit')
 		)?.statusMessage;
+		const warningMessages = successfulJobs
+			.map((j) => j.statusMessage)
+			.filter((m): m is string => Boolean(m))
+			.filter((m) => !m.includes('rate limit'));
 
 		if (failedJobs.length > 0) {
 			status = 'error';
@@ -83,18 +79,19 @@ export default async (job: Job<ISyncCycleFinishedJob, any, string>) => {
 			if (isInitialImport) {
 				message = `Initial import finished for ${userCount} mailboxes.`;
 			}
+			if (warningMessages.length > 0) {
+				const deduped = Array.from(new Set(warningMessages));
+				message = `${message}\nWarnings:\n${deduped.join('\n')}`;
+			}
 			logger.info({ ingestionSourceId }, 'Successfully updated status and final sync state.');
 		}
 
-		await db
-			.update(ingestionSources)
-			.set({
-				status,
-				lastSyncFinishedAt: new Date(),
-				lastSyncStatusMessage: message,
-				syncState: finalSyncState,
-			})
-			.where(eq(ingestionSources.id, ingestionSourceId));
+		await IngestionService.update(ingestionSourceId, {
+			status,
+			lastSyncFinishedAt: new Date(),
+			lastSyncStatusMessage: message,
+			syncState: finalSyncState,
+		});
 	} catch (error) {
 		logger.error(
 			{ err: error, ingestionSourceId },

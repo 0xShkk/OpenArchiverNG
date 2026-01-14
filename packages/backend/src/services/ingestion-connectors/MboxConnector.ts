@@ -6,12 +6,14 @@ import type {
 	MailboxUser,
 } from '@open-archiver/types';
 import type { IEmailConnector } from '../EmailProviderFactory';
-import { simpleParser, ParsedMail, Attachment, AddressObject } from 'mailparser';
+import { Attachment, AddressObject } from 'mailparser';
 import { logger } from '../../config/logger';
 import { getThreadId } from './helpers/utils';
 import { StorageService } from '../StorageService';
 import { Readable, Transform } from 'stream';
 import { createHash } from 'crypto';
+import { parseEmailWithLimit } from '../../helpers/emailParser';
+import { SettingsService } from '../SettingsService';
 
 class MboxSplitter extends Transform {
 	private buffer: Buffer = Buffer.alloc(0);
@@ -53,6 +55,7 @@ class MboxSplitter extends Transform {
 
 export class MboxConnector implements IEmailConnector {
 	private storage: StorageService;
+	private settingsService = new SettingsService();
 
 	constructor(private credentials: MboxImportCredentials) {
 		this.storage = new StorageService();
@@ -94,13 +97,18 @@ export class MboxConnector implements IEmailConnector {
 		userEmail: string,
 		syncState?: SyncState | null
 	): AsyncGenerator<EmailObject | null> {
+		if (!this.credentials.uploadedFilePath) {
+			throw new Error('Mbox file path not provided.');
+		}
+		const settings = await this.settingsService.getSystemSettings();
+		const maxEmailBytes = settings.maxEmailBytes;
 		const fileStream = await this.storage.getStream(this.credentials.uploadedFilePath);
 		const mboxSplitter = new MboxSplitter();
 		const emailStream = fileStream.pipe(mboxSplitter);
 
 		for await (const emailBuffer of emailStream) {
 			try {
-				const emailObject = await this.parseMessage(emailBuffer as Buffer, '');
+				const emailObject = await this.parseMessage(emailBuffer as Buffer, '', maxEmailBytes);
 				yield emailObject;
 			} catch (error) {
 				logger.error(
@@ -123,15 +131,30 @@ export class MboxConnector implements IEmailConnector {
 		}
 	}
 
-	private async parseMessage(emlBuffer: Buffer, path: string): Promise<EmailObject> {
-		const parsedEmail: ParsedMail = await simpleParser(emlBuffer);
+	private async parseMessage(
+		emlBuffer: Buffer,
+		path: string,
+		maxEmailBytes: number
+	): Promise<EmailObject> {
+		const { parsedEmail, isTruncated } = await parseEmailWithLimit(
+			emlBuffer,
+			maxEmailBytes
+		);
+		if (isTruncated) {
+			logger.warn(
+				{ sizeBytes: emlBuffer.length },
+				'Email size exceeds parse limit. Using headers only.'
+			);
+		}
 
-		const attachments = parsedEmail.attachments.map((attachment: Attachment) => ({
-			filename: attachment.filename || 'untitled',
-			contentType: attachment.contentType,
-			size: attachment.size,
-			content: attachment.content as Buffer,
-		}));
+		const attachments = isTruncated
+			? []
+			: parsedEmail.attachments.map((attachment: Attachment) => ({
+					filename: attachment.filename || 'untitled',
+					contentType: attachment.contentType,
+					size: attachment.size,
+					content: attachment.content as Buffer,
+				}));
 
 		const mapAddresses = (
 			addresses: AddressObject | AddressObject[] | undefined
@@ -180,8 +203,8 @@ export class MboxConnector implements IEmailConnector {
 			cc: mapAddresses(parsedEmail.cc),
 			bcc: mapAddresses(parsedEmail.bcc),
 			subject: parsedEmail.subject || '',
-			body: parsedEmail.text || '',
-			html: parsedEmail.html || '',
+			body: isTruncated ? '' : parsedEmail.text || '',
+			html: isTruncated ? '' : parsedEmail.html || '',
 			headers: parsedEmail.headers,
 			attachments,
 			receivedAt: parsedEmail.date || new Date(),
@@ -191,6 +214,6 @@ export class MboxConnector implements IEmailConnector {
 	}
 
 	public getUpdatedSyncState(): SyncState {
-		return {};
+		return { lastSyncTimestamp: new Date().toISOString() };
 	}
 }

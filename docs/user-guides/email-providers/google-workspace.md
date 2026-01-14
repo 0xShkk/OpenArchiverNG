@@ -90,6 +90,11 @@ Now, you will authorize the service account you created to access data from your
         ```
         https://www.googleapis.com/auth/admin.directory.user.readonly,https://www.googleapis.com/auth/gmail.readonly
         ```
+    - If you plan to enable **Delete from source after archive**, add the Gmail modify scope as well:
+        ```
+        https://www.googleapis.com/auth/gmail.modify
+        ```
+      You can then select the Gmail deletion mode (Trash vs. Permanent) when configuring the ingestion source.
     - Click **"Authorize"**.
 
 The service account is now permitted to list users and read their email data across your domain.

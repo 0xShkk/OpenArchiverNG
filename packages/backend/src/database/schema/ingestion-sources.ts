@@ -1,4 +1,4 @@
-import { jsonb, pgEnum, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { boolean, jsonb, pgEnum, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { users } from './users';
 import { relations } from 'drizzle-orm';
 
@@ -22,6 +22,8 @@ export const ingestionStatusEnum = pgEnum('ingestion_status', [
 	'imported',
 ]);
 
+export const gmailDeleteModeEnum = pgEnum('gmail_delete_mode', ['permanent', 'trash']);
+
 export const ingestionSources = pgTable('ingestion_sources', {
 	id: uuid('id').primaryKey().defaultRandom(),
 	userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
@@ -33,6 +35,8 @@ export const ingestionSources = pgTable('ingestion_sources', {
 	lastSyncFinishedAt: timestamp('last_sync_finished_at', { withTimezone: true }),
 	lastSyncStatusMessage: text('last_sync_status_message'),
 	syncState: jsonb('sync_state'),
+	deleteFromSourceAfterArchiveOverride: boolean('delete_from_source_after_archive_override'),
+	gmailDeleteMode: gmailDeleteModeEnum('gmail_delete_mode'),
 	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 	updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

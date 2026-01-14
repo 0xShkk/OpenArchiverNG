@@ -19,7 +19,10 @@ import { SearchService } from './SearchService';
 import type { Readable } from 'stream';
 import { AuditService } from './AuditService';
 import { User } from '@open-archiver/types';
-import { checkDeletionEnabled } from '../helpers/deletionGuard';
+import { assertEmailNotOnLegalHold, checkDeletionEnabled } from '../helpers/deletionGuard';
+import { streamToBuffer } from '../helpers/streamToBuffer';
+import { logger } from '../config/logger';
+import { SettingsService } from './SettingsService';
 
 interface DbRecipients {
 	to: { name: string; address: string }[];
@@ -27,17 +30,9 @@ interface DbRecipients {
 	bcc: { name: string; address: string }[];
 }
 
-async function streamToBuffer(stream: Readable): Promise<Buffer> {
-	return new Promise((resolve, reject) => {
-		const chunks: Buffer[] = [];
-		stream.on('data', (chunk) => chunks.push(chunk));
-		stream.on('error', reject);
-		stream.on('end', () => resolve(Buffer.concat(chunks)));
-	});
-}
-
 export class ArchivedEmailService {
 	private static auditService = new AuditService();
+	private static settingsService = new SettingsService();
 	private static mapRecipients(dbRecipients: unknown): Recipient[] {
 		const { to = [], cc = [], bcc = [] } = dbRecipients as DbRecipients;
 
@@ -152,8 +147,22 @@ export class ArchivedEmailService {
 		}
 
 		const storage = new StorageService();
-		const rawStream = await storage.get(email.storagePath);
-		const raw = await streamToBuffer(rawStream as Readable);
+		let raw: Buffer | undefined;
+		const settings = await this.settingsService.getSystemSettings();
+		const maxPreviewBytes = settings.maxPreviewBytes;
+		if (email.sizeBytes && email.sizeBytes > maxPreviewBytes) {
+			logger.warn(
+				{ emailId: email.id, sizeBytes: email.sizeBytes },
+				'Skipping raw preview due to size limit.'
+			);
+		} else {
+			try {
+				const rawStream = await storage.get(email.storagePath);
+				raw = await streamToBuffer(rawStream as Readable, maxPreviewBytes);
+			} catch (error) {
+				logger.warn({ emailId: email.id, error }, 'Failed to load raw email preview.');
+			}
+		}
 
 		const mappedEmail = {
 			...email,
@@ -196,10 +205,13 @@ export class ArchivedEmailService {
 
 	public static async deleteArchivedEmail(
 		emailId: string,
-		actor: User,
-		actorIp: string
+		actor: Pick<User, 'id'>,
+		actorIp: string,
+		options?: { bypassDeletionGuard?: boolean; reason?: string; policyId?: string }
 	): Promise<void> {
-		checkDeletionEnabled();
+		if (!options?.bypassDeletionGuard) {
+			await checkDeletionEnabled();
+		}
 		const [email] = await db
 			.select()
 			.from(archivedEmails)
@@ -208,6 +220,7 @@ export class ArchivedEmailService {
 		if (!email) {
 			throw new Error('Archived email not found');
 		}
+		assertEmailNotOnLegalHold(email.isOnLegalHold);
 
 		const storage = new StorageService();
 
@@ -269,7 +282,8 @@ export class ArchivedEmailService {
 			targetId: emailId,
 			actorIp,
 			details: {
-				reason: 'ManualDeletion',
+				reason: options?.reason ?? 'manual',
+				policyId: options?.policyId ?? null,
 			},
 		});
 	}

@@ -15,6 +15,7 @@ const validActions: Set<AppActions> = new Set([
 const validSubjects: Set<AppSubjects> = new Set([
 	'archive',
 	'ingestion',
+	'compliance',
 	'settings',
 	'users',
 	'roles',

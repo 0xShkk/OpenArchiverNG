@@ -9,6 +9,7 @@ import type {
 	EmailObject,
 	SyncState,
 	MailboxUser,
+	GmailDeleteMode,
 } from '@open-archiver/types';
 import { GoogleWorkspaceConnector } from './ingestion-connectors/GoogleWorkspaceConnector';
 import { MicrosoftConnector } from './ingestion-connectors/MicrosoftConnector';
@@ -27,6 +28,11 @@ export interface IEmailConnector {
 	getUpdatedSyncState(userEmail?: string): SyncState;
 	listAllUsers(): AsyncGenerator<MailboxUser>;
 	returnImapUserEmail?(): string;
+	deleteFromSource?(
+		email: EmailObject,
+		userEmail: string,
+		options?: { mode?: GmailDeleteMode }
+	): Promise<void>;
 }
 
 export class EmailProviderFactory {

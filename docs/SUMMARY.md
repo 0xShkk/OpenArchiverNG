@@ -8,10 +8,14 @@
     - [Connecting to Google Workspace](user-guides/email-providers/google-workspace.md)
     - [Connecting to a Generic IMAP Server](user-guides/email-providers/imap.md)
     - [Connecting to Microsoft 365](user-guides/email-providers/microsoft-365.md)
+- [Compliance & Legal Holds](user-guides/compliance/legal-holds.md)
+- [Archive Exports & Backups](user-guides/archive-exports.md)
 
 ---
 
 - [api](api/index.md)
+    - [Compliance API Documentation](api/compliance.md)
+    - [Archive Exports API Documentation](api/archive-exports.md)
     - [Ingestion Sources API Documentation](api/ingestion.md)
 - [services](services/index.md)
     - [Pluggable Storage Service (StorageService)](services/storage-service.md)

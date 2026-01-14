@@ -1,0 +1,68 @@
+services:
+    open-archiver:
+        image: node:22-bookworm
+        container_name: open-archiver-dev
+        working_dir: /workspace
+        init: true
+        stop_signal: SIGTERM
+        stop_grace_period: 60s
+        command: >
+            bash -lc "corepack enable &&
+            corepack prepare pnpm@10.13.1 --activate &&
+            pnpm install &&
+            pnpm --filter @open-archiver/backend db:migrate:dev &&
+            pnpm dev:oss"
+        env_file:
+            - .env
+        environment:
+            CHOKIDAR_USEPOLLING: 'true'
+            WATCHPACK_POLLING: 'true'
+        volumes:
+            - .:/workspace
+            - open-archiver-node-modules:/workspace/node_modules
+            - open-archiver-pnpm-store:/root/.pnpm-store
+            - ${STORAGE_LOCAL_ROOT_PATH}:${STORAGE_LOCAL_ROOT_PATH}
+        ports:
+            - '3000:3000'
+            - '4000:4000'
+        restart: 'no'
+        depends_on:
+            - postgres
+            - valkey
+            - meilisearch
+            - tika
+
+    open-archiver-workers:
+        image: node:22-bookworm
+        container_name: open-archiver-workers
+        working_dir: /workspace
+        profiles:
+            - workers
+        init: true
+        stop_signal: SIGTERM
+        stop_grace_period: 60s
+        command: >
+            bash -lc "corepack enable &&
+            corepack prepare pnpm@10.13.1 --activate &&
+            pnpm install &&
+            pnpm start:workers:dev"
+        env_file:
+            - .env
+        environment:
+            CHOKIDAR_USEPOLLING: 'true'
+            WATCHPACK_POLLING: 'true'
+        volumes:
+            - .:/workspace
+            - open-archiver-node-modules:/workspace/node_modules
+            - open-archiver-pnpm-store:/root/.pnpm-store
+            - ${STORAGE_LOCAL_ROOT_PATH}:${STORAGE_LOCAL_ROOT_PATH}
+        restart: 'no'
+        depends_on:
+            - postgres
+            - valkey
+            - meilisearch
+            - tika
+
+volumes:
+    open-archiver-node-modules:
+    open-archiver-pnpm-store:

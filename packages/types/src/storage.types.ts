@@ -37,6 +37,13 @@ export interface IStorageProvider {
 	exists(path: string): Promise<boolean>;
 }
 
+export type StorageImmutabilityMode = 'off' | 'hold' | 'always';
+
+export interface StorageObjectLockConfig {
+	mode: 'GOVERNANCE' | 'COMPLIANCE';
+	retentionDays: number;
+}
+
 /**
  * Configuration for the Local Filesystem provider.
  */
@@ -46,6 +53,7 @@ export interface LocalStorageConfig {
 	rootPath: string;
 	openArchiverFolderName: string;
 	encryptionKey?: string;
+	immutabilityMode?: StorageImmutabilityMode;
 }
 
 /**
@@ -68,6 +76,8 @@ export interface S3StorageConfig {
 	forcePathStyle?: boolean;
 	openArchiverFolderName: string;
 	encryptionKey?: string;
+	immutabilityMode?: StorageImmutabilityMode;
+	objectLock?: StorageObjectLockConfig;
 }
 
 export type StorageConfig = LocalStorageConfig | S3StorageConfig;

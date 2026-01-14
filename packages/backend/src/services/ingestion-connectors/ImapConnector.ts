@@ -2,20 +2,34 @@ import type {
 	GenericImapCredentials,
 	EmailObject,
 	EmailAddress,
+	GmailDeleteMode,
 	SyncState,
 	MailboxUser,
 } from '@open-archiver/types';
 import type { IEmailConnector } from '../EmailProviderFactory';
 import { ImapFlow } from 'imapflow';
-import { simpleParser, ParsedMail, Attachment, AddressObject, Headers } from 'mailparser';
-import { config } from '../../config';
+import { Attachment, AddressObject } from 'mailparser';
 import { logger } from '../../config/logger';
 import { getThreadId } from './helpers/utils';
+import { parseEmailWithLimit } from '../../helpers/emailParser';
+import { SettingsService } from '../SettingsService';
 
 export class ImapConnector implements IEmailConnector {
 	private client: ImapFlow;
 	private newMaxUids: { [mailboxPath: string]: number } = {};
 	private statusMessage: string | undefined;
+	private lastSyncTimestamp: string | undefined;
+	private settingsService = new SettingsService();
+
+	private appendStatusMessage(message: string): void {
+		if (!this.statusMessage) {
+			this.statusMessage = message;
+			return;
+		}
+		if (!this.statusMessage.includes(message)) {
+			this.statusMessage = `${this.statusMessage}\n${message}`;
+		}
+	}
 
 	constructor(private credentials: GenericImapCredentials) {
 		this.client = this.createClient();
@@ -145,6 +159,9 @@ export class ImapConnector implements IEmailConnector {
 		syncState?: SyncState | null
 	): AsyncGenerator<EmailObject | null> {
 		try {
+			const settings = await this.settingsService.getSystemSettings();
+			const allInclusiveArchive = settings.allInclusiveArchive;
+			const maxEmailBytes = settings.maxEmailBytes;
 			// list all mailboxes first
 			const mailboxes = await this.withRetry(async () => await this.client.list());
 
@@ -153,7 +170,7 @@ export class ImapConnector implements IEmailConnector {
 				if (mailbox.flags.has('\\Noselect')) {
 					return false;
 				}
-				if (config.app.allInclusiveArchive) {
+				if (allInclusiveArchive) {
 					return true;
 				}
 				// filter out junk/spam mail emails
@@ -174,6 +191,7 @@ export class ImapConnector implements IEmailConnector {
 			for (const mailboxInfo of processableMailboxes) {
 				const mailboxPath = mailboxInfo.path;
 				logger.info({ mailboxPath }, 'Processing mailbox');
+				let processedCount = 0;
 
 				try {
 					const mailbox = await this.withRetry(
@@ -189,6 +207,15 @@ export class ImapConnector implements IEmailConnector {
 						if (lastMessage && lastMessage.uid > currentMaxUid) {
 							currentMaxUid = lastMessage.uid;
 						}
+					}
+					if (lastUid && currentMaxUid < lastUid) {
+						logger.warn(
+							{ mailboxPath, lastUid, currentMaxUid },
+							'Mailbox UID appears to have reset. Consider a full resync.'
+						);
+						this.appendStatusMessage(
+							`Mailbox UID appears to have reset for ${mailboxPath}. Consider a full resync.`
+						);
 					}
 
 					// Initialize with last synced UID, not the maximum UID in mailbox
@@ -208,6 +235,7 @@ export class ImapConnector implements IEmailConnector {
 								envelope: true,
 								source: true,
 								bodyStructure: true,
+								internalDate: true,
 								uid: true,
 							})) {
 								if (lastUid && msg.uid <= lastUid) {
@@ -222,7 +250,8 @@ export class ImapConnector implements IEmailConnector {
 
 								if (msg.envelope && msg.source) {
 									try {
-										yield await this.parseMessage(msg, mailboxPath);
+										yield await this.parseMessage(msg, mailboxPath, maxEmailBytes);
+										processedCount += 1;
 									} catch (err: any) {
 										logger.error(
 											{ err, mailboxPath, uid: msg.uid },
@@ -237,6 +266,16 @@ export class ImapConnector implements IEmailConnector {
 							startUid = endUid + 1;
 						}
 					}
+
+					logger.info(
+						{
+							mailboxPath,
+							processedCount,
+							lastUid: lastUid || 0,
+							maxUid: this.newMaxUids[mailboxPath] || 0,
+						},
+						'Finished mailbox sync'
+					);
 				} catch (err: any) {
 					logger.error({ err, mailboxPath }, 'Failed to process mailbox');
 					// Check if the error indicates a persistent failure after retries
@@ -246,19 +285,39 @@ export class ImapConnector implements IEmailConnector {
 					}
 				}
 			}
+			this.lastSyncTimestamp = new Date().toISOString();
 		} finally {
 			await this.disconnect();
 		}
 	}
 
-	private async parseMessage(msg: any, mailboxPath: string): Promise<EmailObject> {
-		const parsedEmail: ParsedMail = await simpleParser(msg.source);
-		const attachments = parsedEmail.attachments.map((attachment: Attachment) => ({
-			filename: attachment.filename || 'untitled',
-			contentType: attachment.contentType,
-			size: attachment.size,
-			content: attachment.content as Buffer,
-		}));
+	private async parseMessage(
+		msg: any,
+		mailboxPath: string,
+		maxEmailBytes: number
+	): Promise<EmailObject> {
+		const { parsedEmail, isTruncated } = await parseEmailWithLimit(
+			msg.source,
+			maxEmailBytes
+		);
+		if (isTruncated) {
+			logger.warn(
+				{ sizeBytes: msg.source?.length, mailboxPath },
+				'Email size exceeds parse limit. Using headers only.'
+			);
+			this.appendStatusMessage(
+				'Some emails exceeded the size limit and were indexed using headers only.'
+			);
+		}
+
+		const attachments = isTruncated
+			? []
+			: parsedEmail.attachments.map((attachment: Attachment) => ({
+					filename: attachment.filename || 'untitled',
+					contentType: attachment.contentType,
+					size: attachment.size,
+					content: attachment.content as Buffer,
+				}));
 
 		const mapAddresses = (
 			addresses: AddressObject | AddressObject[] | undefined
@@ -271,6 +330,11 @@ export class ImapConnector implements IEmailConnector {
 		};
 
 		const threadId = getThreadId(parsedEmail.headers);
+		const resolvedReceivedAt =
+			this.pickValidDate(parsedEmail.date) ??
+			this.pickValidDate(msg.internalDate) ??
+			this.pickValidDate(msg.envelope?.date) ??
+			new Date();
 
 		return {
 			id: parsedEmail.messageId || msg.uid.toString(),
@@ -280,14 +344,51 @@ export class ImapConnector implements IEmailConnector {
 			cc: mapAddresses(parsedEmail.cc),
 			bcc: mapAddresses(parsedEmail.bcc),
 			subject: parsedEmail.subject || '',
-			body: parsedEmail.text || '',
-			html: parsedEmail.html || '',
+			body: isTruncated ? '' : parsedEmail.text || '',
+			html: isTruncated ? '' : parsedEmail.html || '',
 			headers: parsedEmail.headers,
 			attachments,
-			receivedAt: parsedEmail.date || new Date(),
+			receivedAt: resolvedReceivedAt,
 			eml: msg.source,
 			path: mailboxPath,
+			sourceId: msg.uid ? String(msg.uid) : undefined,
 		};
+	}
+
+	public async deleteFromSource(
+		email: EmailObject,
+		_userEmail: string,
+		_options?: { mode?: GmailDeleteMode }
+	): Promise<void> {
+		if (!email.sourceId || !email.path) {
+			logger.warn(
+				{ sourceId: email.sourceId, mailboxPath: email.path },
+				'IMAP delete skipped: missing source ID or mailbox path.'
+			);
+			return;
+		}
+		const mailboxPath = email.path;
+		const uid = Number(email.sourceId);
+		if (!Number.isFinite(uid)) {
+			logger.warn(
+				{ sourceId: email.sourceId, mailboxPath: email.path },
+				'IMAP delete skipped: invalid UID.'
+			);
+			return;
+		}
+
+		await this.withRetry(async () => {
+			await this.client.mailboxOpen(mailboxPath);
+			await this.client.messageDelete(uid, { uid: true });
+			return true;
+		});
+	}
+
+	private pickValidDate(value: unknown): Date | null {
+		if (!(value instanceof Date)) {
+			return null;
+		}
+		return Number.isNaN(value.getTime()) ? null : value;
 	}
 
 	public getUpdatedSyncState(): SyncState {
@@ -298,6 +399,10 @@ export class ImapConnector implements IEmailConnector {
 		const syncState: SyncState = {
 			imap: imapSyncState,
 		};
+
+		if (this.lastSyncTimestamp) {
+			syncState.lastSyncTimestamp = this.lastSyncTimestamp;
+		}
 
 		if (this.statusMessage) {
 			syncState.statusMessage = this.statusMessage;

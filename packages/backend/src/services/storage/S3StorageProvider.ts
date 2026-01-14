@@ -14,6 +14,8 @@ import { Readable } from 'stream';
 export class S3StorageProvider implements IStorageProvider {
 	private readonly client: S3Client;
 	private readonly bucket: string;
+	private readonly immutabilityMode: 'off' | 'hold' | 'always';
+	private readonly objectLock?: S3StorageConfig['objectLock'];
 
 	constructor(config: S3StorageConfig) {
 		this.client = new S3Client({
@@ -26,15 +28,27 @@ export class S3StorageProvider implements IStorageProvider {
 			forcePathStyle: config.forcePathStyle,
 		});
 		this.bucket = config.bucket;
+		this.immutabilityMode = config.immutabilityMode || 'off';
+		this.objectLock = config.objectLock;
 	}
 
 	async put(path: string, content: Buffer | NodeJS.ReadableStream): Promise<void> {
+		const objectLock =
+			this.objectLock && this.objectLock.retentionDays > 0
+				? {
+						ObjectLockMode: this.objectLock.mode,
+						ObjectLockRetainUntilDate: new Date(
+							Date.now() + this.objectLock.retentionDays * 24 * 60 * 60 * 1000
+						),
+					}
+				: {};
 		const upload = new Upload({
 			client: this.client,
 			params: {
 				Bucket: this.bucket,
 				Key: path,
 				Body: content instanceof Readable ? content : Readable.from(content),
+				...objectLock,
 			},
 		});
 
@@ -62,6 +76,9 @@ export class S3StorageProvider implements IStorageProvider {
 	}
 
 	async delete(path: string): Promise<void> {
+		if (this.immutabilityMode === 'always') {
+			throw new Error('Storage immutability is enabled. Deletion is blocked.');
+		}
 		// List all objects with the given prefix
 		const listCommand = new ListObjectsV2Command({
 			Bucket: this.bucket,

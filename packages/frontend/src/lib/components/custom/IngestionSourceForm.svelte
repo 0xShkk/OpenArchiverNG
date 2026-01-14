@@ -55,6 +55,8 @@
 			secure: true,
 			allowInsecureCert: false,
 		},
+		deleteFromSourceAfterArchiveOverride: source?.deleteFromSourceAfterArchiveOverride ?? null,
+		gmailDeleteMode: source?.gmailDeleteMode ?? 'permanent',
 	});
 
 	$effect(() => {
@@ -65,6 +67,26 @@
 		providerOptions.find((p) => p.value === formData.provider)?.label ??
 			$t('app.components.ingestion_source_form.select_provider')
 	);
+	const supportsDeleteFromSource = $derived(
+		['generic_imap', 'google_workspace', 'microsoft_365'].includes(formData.provider)
+	);
+
+	let deleteOverrideChoice = $state<'inherit' | 'enable' | 'disable'>(
+		source?.deleteFromSourceAfterArchiveOverride === true
+			? 'enable'
+			: source?.deleteFromSourceAfterArchiveOverride === false
+				? 'disable'
+				: 'inherit'
+	);
+
+	$effect(() => {
+		formData.deleteFromSourceAfterArchiveOverride =
+			deleteOverrideChoice === 'enable'
+				? true
+				: deleteOverrideChoice === 'disable'
+					? false
+					: null;
+	});
 
 	let isSubmitting = $state(false);
 
@@ -162,6 +184,29 @@
 				class="col-span-3"
 			/>
 		</div>
+		<div class="grid grid-cols-4 items-center gap-4">
+			<Label for="gmailDeleteMode" class="text-left"
+				>{$t('app.components.ingestion_source_form.gmail_delete_mode')}</Label
+			>
+			<Select.Root name="gmailDeleteMode" bind:value={formData.gmailDeleteMode} type="single">
+				<Select.Trigger class="col-span-3">
+					{formData.gmailDeleteMode === 'trash'
+						? $t('app.components.ingestion_source_form.gmail_delete_mode_trash')
+						: $t('app.components.ingestion_source_form.gmail_delete_mode_permanent')}
+				</Select.Trigger>
+				<Select.Content>
+					<Select.Item value="trash"
+						>{$t('app.components.ingestion_source_form.gmail_delete_mode_trash')}</Select.Item
+					>
+					<Select.Item value="permanent"
+						>{$t('app.components.ingestion_source_form.gmail_delete_mode_permanent')}</Select.Item
+					>
+				</Select.Content>
+			</Select.Root>
+		</div>
+		<p class="text-xs text-muted-foreground">
+			{$t('app.components.ingestion_source_form.gmail_delete_mode_help')}
+		</p>
 	{:else if formData.provider === 'microsoft_365'}
 		<div class="grid grid-cols-4 items-center gap-4">
 			<Label for="clientId" class="text-left"
@@ -289,6 +334,50 @@
 				{/if}
 			</div>
 		</div>
+	{/if}
+	{#if supportsDeleteFromSource}
+		<div class="grid grid-cols-4 items-center gap-4">
+			<Label for="deleteFromSourceOverride" class="text-left"
+				>{$t('app.components.ingestion_source_form.delete_from_source_override')}</Label
+			>
+			<Select.Root
+				name="deleteFromSourceOverride"
+				bind:value={deleteOverrideChoice}
+				type="single"
+			>
+				<Select.Trigger class="col-span-3">
+					{deleteOverrideChoice === 'enable'
+						? $t('app.components.ingestion_source_form.delete_from_source_override_enable')
+						: deleteOverrideChoice === 'disable'
+							? $t(
+									'app.components.ingestion_source_form.delete_from_source_override_disable'
+								)
+							: $t(
+									'app.components.ingestion_source_form.delete_from_source_override_inherit'
+								)}
+				</Select.Trigger>
+				<Select.Content>
+					<Select.Item value="inherit"
+						>{$t(
+							'app.components.ingestion_source_form.delete_from_source_override_inherit'
+						)}</Select.Item
+					>
+					<Select.Item value="enable"
+						>{$t(
+							'app.components.ingestion_source_form.delete_from_source_override_enable'
+						)}</Select.Item
+					>
+					<Select.Item value="disable"
+						>{$t(
+							'app.components.ingestion_source_form.delete_from_source_override_disable'
+						)}</Select.Item
+					>
+				</Select.Content>
+			</Select.Root>
+		</div>
+		<p class="text-xs text-muted-foreground">
+			{$t('app.components.ingestion_source_form.delete_from_source_override_help')}
+		</p>
 	{/if}
 	{#if formData.provider === 'google_workspace' || formData.provider === 'microsoft_365'}
 		<Alert.Root>

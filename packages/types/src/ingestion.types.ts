@@ -26,6 +26,8 @@ export type IngestionProvider =
 	| 'eml_import'
 	| 'mbox_import';
 
+export type GmailDeleteMode = 'permanent' | 'trash';
+
 export type IngestionStatus =
 	| 'active'
 	| 'paused'
@@ -109,6 +111,8 @@ export interface IngestionSource {
 	lastSyncFinishedAt?: Date | null;
 	lastSyncStatusMessage?: string | null;
 	syncState?: SyncState | null;
+	deleteFromSourceAfterArchiveOverride?: boolean | null;
+	gmailDeleteMode?: GmailDeleteMode | null;
 }
 
 /**
@@ -122,6 +126,8 @@ export interface CreateIngestionSourceDto {
 	name: string;
 	provider: IngestionProvider;
 	providerConfig: Record<string, any>;
+	deleteFromSourceAfterArchiveOverride?: boolean | null;
+	gmailDeleteMode?: GmailDeleteMode | null;
 }
 
 export interface UpdateIngestionSourceDto {
@@ -133,6 +139,8 @@ export interface UpdateIngestionSourceDto {
 	lastSyncFinishedAt?: Date;
 	lastSyncStatusMessage?: string;
 	syncState?: SyncState;
+	deleteFromSourceAfterArchiveOverride?: boolean | null;
+	gmailDeleteMode?: GmailDeleteMode | null;
 }
 
 export interface IContinuousSyncJob {

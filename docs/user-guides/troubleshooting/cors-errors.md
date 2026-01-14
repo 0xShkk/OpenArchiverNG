@@ -11,6 +11,7 @@ You may be experiencing a CORS issue if you see one of the following errors in y
 - `TypeError: fetch failed`
 - `Cross-Origin Request Blocked: The Same Origin Policy disallows reading the remote resource.`
 - `Unexpected token 'C', "Cross-site"... is not valid JSON`
+- `Cross-site POST form submissions are forbidden`
 - A JSON error response similar to the following:
     ```json
     {
@@ -29,6 +30,7 @@ This can happen for several reasons:
 - You are accessing the application via a different port.
 - You are using a reverse proxy that changes the protocol (e.g., from `http` to `https`).
 - The SvelteKit server, in a production build, is incorrectly guessing its public-facing URL.
+- `APP_URL` includes a path segment (e.g., `https://example.com/archive`), which is not a valid origin.
 
 ## Solution
 
@@ -46,6 +48,12 @@ The solution is to ensure that the application's frontend and backend are correc
 
     ```env
     ORIGIN=$APP_URL
+    ```
+
+    If your `APP_URL` includes a path (e.g., `https://example.com/archive`), `ORIGIN` must be the origin only:
+
+    ```env
+    ORIGIN=https://example.com
     ```
 
     By using `$APP_URL`, you ensure that both variables are always in sync.

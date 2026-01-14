@@ -26,12 +26,13 @@ IAM policies are defined as an array of JSON objects, where each object represen
 
 The following actions are available for use in IAM policies:
 
-- `manage`: A wildcard action that grants all permissions on a subject (`create`, `read`, `update`, `delete`, `search`, `sync`).
+- `manage`: A wildcard action that grants all permissions on a subject (`create`, `read`, `update`, `delete`, `search`, `sync`, `export`).
 - `create`: Allows the user to create a new resource.
 - `read`: Allows the user to view a resource.
 - `update`: Allows the user to modify an existing resource.
 - `delete`: Allows the user to delete a resource.
 - `search`: Allows the user to search for resources.
+- `export`: Allows the user to export resources or create export jobs.
 - `sync`: Allows the user to synchronize a resource.
 
 ## Subjects
@@ -41,6 +42,7 @@ The following subjects are available for use in IAM policies:
 - `all`: A wildcard subject that represents all resources.
 - `archive`: Represents archived emails.
 - `ingestion`: Represents ingestion sources.
+- `compliance`: Represents compliance workflows (legal holds, audit log).
 - `settings`: Represents system settings.
 - `users`: Represents user accounts.
 - `roles`: Represents user roles.

@@ -1,21 +1,12 @@
-import { ingestionQueue } from '../queues';
+import { JobScheduleService } from '../../services/JobScheduleService';
 
-import { config } from '../../config';
+const scheduleService = new JobScheduleService();
 
-const scheduleContinuousSync = async () => {
-	// This job will run every 15 minutes
-	await ingestionQueue.add(
-		'schedule-continuous-sync',
-		{},
-		{
-			jobId: 'schedule-continuous-sync',
-			repeat: {
-				pattern: config.app.syncFrequency,
-			},
-		}
-	);
-};
-
-scheduleContinuousSync().then(() => {
-	console.log('Continuous sync scheduler started.');
-});
+scheduleService
+	.refreshSchedules()
+	.then(() => {
+		console.log('Job schedules refreshed.');
+	})
+	.catch((error) => {
+		console.error('Failed to refresh job schedules.', error);
+	});

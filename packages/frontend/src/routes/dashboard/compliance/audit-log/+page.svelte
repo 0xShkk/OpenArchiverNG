@@ -10,7 +10,7 @@
 	import { api } from '$lib/api.client';
 	import { setAlert } from '$lib/components/custom/alert/alert-state.svelte';
 	import * as HoverCard from '$lib/components/ui/hover-card/index.js';
-	import type { AuditLogAction, AuditLogEntry } from '@open-archiver/types';
+	import type { AuditLogAction, AuditLogEntry, AuditLogVerification } from '@open-archiver/types';
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import { Label } from '$lib/components/ui/label';
 	import * as Pagination from '$lib/components/ui/pagination/index.js';
@@ -21,6 +21,8 @@
 
 	let logs = $derived(data.logs);
 	let meta = $derived(data.meta);
+	let verifications = $derived(data.verifications as AuditLogVerification[]);
+	let latestVerification = $derived(verifications?.[0]);
 
 	let isDetailViewOpen = $state(false);
 	let selectedLog = $state<AuditLogEntry | null>(null);
@@ -60,7 +62,7 @@
 
 	async function handleVerify() {
 		try {
-			const res = await api('/enterprise/audit-logs/verify', { method: 'POST' });
+			const res = await api('/compliance/audit-logs/verify', { method: 'POST' });
 			const body = await res.json();
 
 			if (res.ok) {
@@ -97,7 +99,19 @@
 </svelte:head>
 
 <div class="mb-4 flex items-center justify-between">
-	<h1 class="text-2xl font-bold">{$t('app.audit_log.header')}</h1>
+	<div class="space-y-1">
+		<h1 class="text-2xl font-bold">{$t('app.audit_log.header')}</h1>
+		{#if latestVerification}
+			<p class="text-muted-foreground text-sm">
+				{$t('app.audit_log.last_verification')}: {new Date(
+					latestVerification.startedAt
+				).toLocaleString()} —
+				{latestVerification.ok
+					? $t('app.audit_log.verification_ok')
+					: $t('app.audit_log.verification_failed')}
+			</p>
+		{/if}
+	</div>
 	<Button onclick={handleVerify}>{$t('app.audit_log.verify_integrity')}</Button>
 </div>
 

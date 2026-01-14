@@ -27,7 +27,18 @@ import { config } from '../config/index';
 import { FilterBuilder } from './FilterBuilder';
 import { AuditService } from './AuditService';
 import { User } from '@open-archiver/types';
-import { checkDeletionEnabled } from '../helpers/deletionGuard';
+import {
+	assertIngestionSourceNotOnLegalHold,
+	checkDeletionEnabled,
+} from '../helpers/deletionGuard';
+import {
+	buildEmailStorageFilename,
+	buildSourceFolderName,
+	sanitizeFilename,
+	sanitizeMailboxPath,
+} from '../helpers/storagePath';
+import { ComplianceService } from './ComplianceService';
+import { JobScheduleService } from './JobScheduleService';
 
 export class IngestionService {
 	private static auditService = new AuditService();
@@ -60,6 +71,16 @@ export class IngestionService {
 		actorIp: string
 	): Promise<IngestionSource> {
 		const { providerConfig, ...rest } = dto;
+		if (this.returnFileBasedIngestions().includes(rest.provider as IngestionProvider)) {
+			const uploadedFilePath = (providerConfig as { uploadedFilePath?: string })
+				?.uploadedFilePath;
+			const uploadedFileName = (providerConfig as { uploadedFileName?: string })
+				?.uploadedFileName;
+
+			if (!uploadedFilePath || !uploadedFileName) {
+				throw new Error('Uploaded file details are required for file-based ingestions.');
+			}
+		}
 		const encryptedCredentials = CryptoService.encryptObject(providerConfig);
 
 		const valuesToInsert = {
@@ -177,6 +198,9 @@ export class IngestionService {
 			);
 		}
 
+		const statusChanged =
+			typeof dto.status !== 'undefined' && dto.status !== originalSource.status;
+
 		// If the status has changed to auth_success, trigger the initial import
 		if (originalSource.status !== 'auth_success' && decryptedSource.status === 'auth_success') {
 			await this.triggerInitialImport(decryptedSource.id);
@@ -202,24 +226,41 @@ export class IngestionService {
 			}
 		}
 
+		if (statusChanged) {
+			try {
+				await new JobScheduleService().refreshSchedules();
+			} catch (error) {
+				logger.warn({ err: error }, 'Failed to refresh job schedules after update.');
+			}
+		}
+
 		return decryptedSource;
 	}
 
 	public static async delete(id: string, actor: User, actorIp: string): Promise<IngestionSource> {
-		checkDeletionEnabled();
+		await checkDeletionEnabled();
 		const source = await this.findById(id);
 		if (!source) {
 			throw new Error('Ingestion source not found');
 		}
+		await assertIngestionSourceNotOnLegalHold(source.id);
 
 		// Delete all emails and attachments from storage
 		const storage = new StorageService();
-		const emailPath = `${config.storage.openArchiverFolderName}/${source.name.replaceAll(' ', '-')}-${source.id}/`;
-		await storage.delete(emailPath);
+		const legacyFolderName = `${source.name.replaceAll(' ', '-')}-${source.id}`;
+		const safeFolderName = buildSourceFolderName(source.name, source.id);
+		const basePaths = new Set<string>([
+			`${config.storage.openArchiverFolderName}/${legacyFolderName}/`,
+			`${config.storage.openArchiverFolderName}/${safeFolderName}/`,
+		]);
+		for (const basePath of basePaths) {
+			await storage.delete(basePath);
+		}
 
 		if (
 			(source.credentials.type === 'pst_import' ||
-				source.credentials.type === 'eml_import') &&
+				source.credentials.type === 'eml_import' ||
+				source.credentials.type === 'mbox_import') &&
 			source.credentials.uploadedFilePath &&
 			(await storage.exists(source.credentials.uploadedFilePath))
 		) {
@@ -259,7 +300,17 @@ export class IngestionService {
 				{ sourceId: deletedSource.id },
 				'Could not decrypt credentials of deleted source, but deletion was successful.'
 			);
+			try {
+				await new JobScheduleService().refreshSchedules();
+			} catch (error) {
+				logger.warn({ err: error }, 'Failed to refresh job schedules after deletion.');
+			}
 			return { ...deletedSource, credentials: null } as unknown as IngestionSource;
+		}
+		try {
+			await new JobScheduleService().refreshSchedules();
+		} catch (error) {
+			logger.warn({ err: error }, 'Failed to refresh job schedules after deletion.');
 		}
 		return decryptedSource;
 	}
@@ -421,8 +472,11 @@ export class IngestionService {
 
 			const emlBuffer = email.eml ?? Buffer.from(email.body, 'utf-8');
 			const emailHash = createHash('sha256').update(emlBuffer).digest('hex');
-			const sanitizedPath = email.path ? email.path : '';
-			const emailPath = `${config.storage.openArchiverFolderName}/${source.name.replaceAll(' ', '-')}-${source.id}/emails/${sanitizedPath}${email.id}.eml`;
+			const sourceFolderName = buildSourceFolderName(source.name, source.id);
+			const mailboxPath = sanitizeMailboxPath(email.path);
+			const mailboxPrefix = mailboxPath ? `${mailboxPath}/` : '';
+			const emailFileName = buildEmailStorageFilename(messageId);
+			const emailPath = `${config.storage.openArchiverFolderName}/${sourceFolderName}/emails/${mailboxPrefix}${emailFileName}`;
 			await storage.put(emailPath, emlBuffer);
 
 			const [archivedEmail] = await db
@@ -456,6 +510,7 @@ export class IngestionService {
 					const attachmentHash = createHash('sha256')
 						.update(attachmentBuffer)
 						.digest('hex');
+					const safeAttachmentName = sanitizeFilename(attachment.filename, 'attachment');
 
 					// Check if an attachment with the same hash already exists for this source
 					const existingAttachment = await db.query.attachments.findFirst({
@@ -481,18 +536,14 @@ export class IngestionService {
 					} else {
 						// If it's a new attachment, create a unique path and save it
 						const uniqueId = randomUUID().slice(0, 7);
-						storagePath = `${config.storage.openArchiverFolderName}/${source.name.replaceAll(' ', '-')}-${source.id}/attachments/${uniqueId}-${attachment.filename}`;
+						const sourceFolderName = buildSourceFolderName(source.name, source.id);
+						storagePath = `${config.storage.openArchiverFolderName}/${sourceFolderName}/attachments/${uniqueId}-${safeAttachmentName}`;
 						await storage.put(storagePath, attachmentBuffer);
 					}
 
 					let attachmentRecord = existingAttachment;
 
 					if (!attachmentRecord) {
-						// If it's a new attachment, create a unique path and save it
-						const uniqueId = randomUUID().slice(0, 5);
-						const storagePath = `${config.storage.openArchiverFolderName}/${source.name.replaceAll(' ', '-')}-${source.id}/attachments/${uniqueId}-${attachment.filename}`;
-						await storage.put(storagePath, attachmentBuffer);
-
 						// Insert a new attachment record
 						[attachmentRecord] = await db
 							.insert(attachmentsSchema)
@@ -516,6 +567,18 @@ export class IngestionService {
 						})
 						.onConflictDoNothing();
 				}
+			}
+
+			try {
+				await new ComplianceService().applyLegalHoldsToEmail(
+					archivedEmail,
+					'system:ingestion'
+				);
+			} catch (error) {
+				logger.warn(
+					{ emailId: archivedEmail.id, error },
+					'Failed to apply legal holds for archived email.'
+				);
 			}
 
 			return {

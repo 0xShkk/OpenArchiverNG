@@ -37,3 +37,17 @@ export interface GetAuditLogsResponse {
 		limit: number;
 	};
 }
+
+export interface AuditLogVerification {
+	id: string;
+	startedAt: string;
+	completedAt?: string | null;
+	ok: boolean;
+	message?: string | null;
+	failedLogId?: number | null;
+	verifiedByIdentifier?: string | null;
+}
+
+export interface GetAuditLogVerificationsResponse {
+	items: AuditLogVerification[];
+}

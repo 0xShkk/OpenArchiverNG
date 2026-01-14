@@ -20,6 +20,8 @@ import { createSettingsRouter } from './routes/settings.routes';
 import { apiKeyRoutes } from './routes/api-key.routes';
 import { integrityRoutes } from './routes/integrity.routes';
 import { createJobsRouter } from './routes/jobs.routes';
+import { createComplianceRouter } from './routes/compliance.routes';
+import { createArchiveExportRouter } from './routes/archive-export.routes';
 import { AuthService } from '../services/AuthService';
 import { AuditService } from '../services/AuditService';
 import { UserService } from '../services/UserService';
@@ -98,9 +100,16 @@ export async function createServer(modules: ArchiverModule[] = []): Promise<Expr
 	const app = express();
 
 	// --- CORS ---
+	const appUrl = process.env.APP_URL || 'http://localhost:3000';
+	let allowedOrigin = appUrl;
+	try {
+		allowedOrigin = new URL(appUrl).origin;
+	} catch (error) {
+		logger.warn({ appUrl }, 'Invalid APP_URL provided, falling back to raw value.');
+	}
 	app.use(
 		cors({
-			origin: process.env.APP_URL || 'http://localhost:3000',
+			origin: allowedOrigin,
 			credentials: true,
 		})
 	);
@@ -123,6 +132,8 @@ export async function createServer(modules: ArchiverModule[] = []): Promise<Expr
 	const apiKeyRouter = apiKeyRoutes(authService);
 	const integrityRouter = integrityRoutes(authService);
 	const jobsRouter = createJobsRouter(authService);
+	const complianceRouter = createComplianceRouter(authService);
+	const archiveExportRouter = createArchiveExportRouter(authService);
 
 	// Middleware for all other routes
 	app.use((req, res, next) => {
@@ -154,6 +165,8 @@ export async function createServer(modules: ArchiverModule[] = []): Promise<Expr
 	app.use(`/${config.api.version}/api-keys`, apiKeyRouter);
 	app.use(`/${config.api.version}/integrity`, integrityRouter);
 	app.use(`/${config.api.version}/jobs`, jobsRouter);
+	app.use(`/${config.api.version}/compliance`, complianceRouter);
+	app.use(`/${config.api.version}/archive-exports`, archiveExportRouter);
 
 	// Load all provided extension modules
 	for (const module of modules) {

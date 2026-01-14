@@ -4,6 +4,22 @@ import type { User } from '@open-archiver/types';
 import 'dotenv/config';
 
 const JWT_SECRET_ENCODED = new TextEncoder().encode(process.env.JWT_SECRET);
+const appUrl = process.env.APP_URL;
+let originWarningLogged = false;
+if (appUrl) {
+	try {
+		const origin = new URL(appUrl).origin;
+		if (!process.env.ORIGIN || process.env.ORIGIN !== origin) {
+			if (!originWarningLogged) {
+				console.warn(`ORIGIN mismatch detected; using ${origin} derived from APP_URL.`);
+				originWarningLogged = true;
+			}
+			process.env.ORIGIN = origin;
+		}
+	} catch (error) {
+		// Ignore invalid APP_URL to avoid breaking requests.
+	}
+}
 
 export const handle: Handle = async ({ event, resolve }) => {
 	const token = event.cookies.get('accessToken');

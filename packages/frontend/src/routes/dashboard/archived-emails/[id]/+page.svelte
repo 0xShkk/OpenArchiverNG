@@ -132,6 +132,16 @@
 										>{formatBytes(email.sizeBytes)}</span
 									>
 								</div>
+								<div class="flex flex-wrap items-center gap-2">
+									<span>{$t('app.archive.legal_hold')}:</span>
+									{#if email.isOnLegalHold}
+										<Badge variant="secondary">
+											{$t('app.archive.on_hold')}
+										</Badge>
+									{:else}
+										<span class="text-muted-foreground">-</span>
+									{/if}
+								</div>
 							</Card.Description>
 						</div>
 						<div>
@@ -184,7 +194,11 @@
 							download(email.storagePath, `${email.subject || 'email'}.eml`)}
 						>{$t('app.archive.download_eml')}</Button
 					>
-					<Button variant="destructive" onclick={() => (isDeleteDialogOpen = true)}>
+					<Button
+						variant="destructive"
+						disabled={email.isOnLegalHold}
+						onclick={() => (isDeleteDialogOpen = true)}
+					>
 						{$t('app.archive.delete_email')}
 					</Button>
 				</Card.Content>

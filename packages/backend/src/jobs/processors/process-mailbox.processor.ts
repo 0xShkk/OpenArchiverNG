@@ -14,6 +14,7 @@ import { SearchService } from '../../services/SearchService';
 import { DatabaseService } from '../../services/DatabaseService';
 import { config } from '../../config';
 import { indexingQueue } from '../queues';
+import { SettingsService } from '../../services/SettingsService';
 
 /**
  * This processor handles the ingestion of emails for a single user's mailbox.
@@ -27,20 +28,54 @@ export const processMailboxProcessor = async (job: Job<IProcessMailboxJob, SyncS
 	const { ingestionSourceId, userEmail } = job.data;
 	const BATCH_SIZE: number = config.meili.indexingBatchSize;
 	let emailBatch: PendingEmail[] = [];
+	const maxQueueDepth = config.meili.indexingMaxQueueDepth;
+	let processedCount = 0;
 
 	logger.info({ ingestionSourceId, userEmail }, `Processing mailbox for user`);
 
 	const searchService = new SearchService();
 	const storageService = new StorageService();
 	const databaseService = new DatabaseService();
+	const settingsService = new SettingsService();
 
 	try {
+		const settings = await settingsService.getSystemSettings();
+		const deleteFromSourceAfterArchive = settings.deleteFromSourceAfterArchive;
+		let loggedDeleteNotSupported = false;
+
+		const waitForIndexingCapacity = async () => {
+			if (!maxQueueDepth || maxQueueDepth <= 0) {
+				return;
+			}
+			while (true) {
+				const counts = await indexingQueue.getJobCounts('waiting', 'active', 'delayed');
+				const backlog = counts.waiting + counts.active + counts.delayed;
+				if (backlog < maxQueueDepth) {
+					return;
+				}
+				logger.warn(
+					{ backlog, maxQueueDepth },
+					'Indexing backlog high. Pausing ingestion briefly.'
+				);
+				await new Promise((resolve) => setTimeout(resolve, 2000));
+			}
+		};
+
 		const source = await IngestionService.findById(ingestionSourceId);
 		if (!source) {
 			throw new Error(`Ingestion source with ID ${ingestionSourceId} not found`);
 		}
 
 		const connector = EmailProviderFactory.createConnector(source);
+		const deleteFromSourceOverride = source.deleteFromSourceAfterArchiveOverride;
+		const shouldDeleteFromSource =
+			typeof deleteFromSourceOverride === 'boolean'
+				? deleteFromSourceOverride
+				: deleteFromSourceAfterArchive;
+		const deleteFromSourceMode =
+			source.provider === 'google_workspace'
+				? source.gmailDeleteMode ?? 'permanent'
+				: undefined;
 		const ingestionService = new IngestionService();
 
 		for await (const email of connector.fetchEmails(userEmail, source.syncState)) {
@@ -52,8 +87,38 @@ export const processMailboxProcessor = async (job: Job<IProcessMailboxJob, SyncS
 					userEmail
 				);
 				if (processedEmail) {
+					if (shouldDeleteFromSource) {
+						if (!connector.deleteFromSource) {
+							if (!loggedDeleteNotSupported) {
+								logger.warn(
+									{ ingestionSourceId, provider: source.provider },
+									'Delete-from-source enabled but provider does not support deletion.'
+								);
+								loggedDeleteNotSupported = true;
+							}
+						} else {
+							try {
+								await connector.deleteFromSource(email, userEmail, {
+									mode: deleteFromSourceMode,
+								});
+							} catch (deleteError) {
+								logger.error(
+									{
+										err: deleteError,
+										ingestionSourceId,
+										userEmail,
+										messageId: email.sourceId || email.id,
+									},
+									'Failed to delete source email after archive.'
+								);
+							}
+						}
+					}
+
+					processedCount += 1;
 					emailBatch.push(processedEmail);
 					if (emailBatch.length >= BATCH_SIZE) {
+						await waitForIndexingCapacity();
 						await indexingQueue.add('index-email-batch', { emails: emailBatch });
 						emailBatch = [];
 					}
@@ -62,12 +127,16 @@ export const processMailboxProcessor = async (job: Job<IProcessMailboxJob, SyncS
 		}
 
 		if (emailBatch.length > 0) {
+			await waitForIndexingCapacity();
 			await indexingQueue.add('index-email-batch', { emails: emailBatch });
 			emailBatch = [];
 		}
 
 		const newSyncState = connector.getUpdatedSyncState(userEmail);
-		logger.info({ ingestionSourceId, userEmail }, `Finished processing mailbox for user`);
+		logger.info(
+			{ ingestionSourceId, userEmail, processedCount },
+			`Finished processing mailbox for user`
+		);
 		return newSyncState;
 	} catch (error) {
 		if (emailBatch.length > 0) {

@@ -12,6 +12,7 @@ export type AppActions =
 export type AppSubjects =
 	| 'archive'
 	| 'ingestion'
+	| 'compliance'
 	| 'settings'
 	| 'users'
 	| 'roles'

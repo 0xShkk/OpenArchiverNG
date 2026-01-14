@@ -5,6 +5,7 @@ import continuousSyncProcessor from '../jobs/processors/continuous-sync.processo
 import scheduleContinuousSyncProcessor from '../jobs/processors/schedule-continuous-sync.processor';
 import { processMailboxProcessor } from '../jobs/processors/process-mailbox.processor';
 import syncCycleFinishedProcessor from '../jobs/processors/sync-cycle-finished.processor';
+import { config } from '../config';
 
 const processor = async (job: any) => {
 	switch (job.name) {
@@ -25,6 +26,11 @@ const processor = async (job: any) => {
 
 const worker = new Worker('ingestion', processor, {
 	connection,
+	concurrency: config.app.ingestionWorkerConcurrency,
+	lockDuration: config.app.queueLockDurationMs,
+	lockRenewTime: config.app.queueLockRenewTimeMs,
+	stalledInterval: config.app.queueStalledIntervalMs,
+	maxStalledCount: config.app.queueMaxStalledCount,
 	removeOnComplete: {
 		count: 100, // keep last 100 jobs
 	},

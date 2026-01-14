@@ -169,6 +169,7 @@ export class SearchService {
 				'timestamp',
 				'ingestionSourceId',
 				'userEmail',
+				'isOnLegalHold',
 			],
 			sortableAttributes: ['timestamp'],
 		});

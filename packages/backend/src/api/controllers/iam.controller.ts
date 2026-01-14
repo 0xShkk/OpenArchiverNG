@@ -139,7 +139,14 @@ export class IamController {
 				[
 					{
 						action: ['read', 'search'],
-						subject: ['ingestion', 'archive', 'dashboard', 'users', 'roles'],
+						subject: [
+							'ingestion',
+							'archive',
+							'compliance',
+							'dashboard',
+							'users',
+							'roles',
+						],
 					},
 				],
 				'predefined_read_only_user'
