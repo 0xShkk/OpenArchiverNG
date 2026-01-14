@@ -2,43 +2,9 @@
 
 Maintained version of [Open Archiver](https://github.com/LogicLabs-OU/OpenArchiver)
 
-[![Docker Compose](https://img.shields.io/badge/Docker%20Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
-[![Meilisearch](https://img.shields.io/badge/Meilisearch-FF5A5F?style=for-the-badge&logo=meilisearch&logoColor=white)](https://www.meilisearch.com/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Redis](https://img.shields.io/badge/Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white)](https://redis.io)
-[![SvelteKit](https://img.shields.io/badge/SvelteKit-FF3E00?style=for-the-badge&logo=svelte&logoColor=white)](https://svelte.dev/)
-
 **A secure, sovereign, and open-source platform for email archiving.**
 
 Open Archiver provides a robust, self-hosted solution for archiving, storing, indexing, and searching emails from major platforms, including Google Workspace (Gmail), Microsoft 365, PST files, as well as generic IMAP-enabled email inboxes. Use Open Archiver to keep a permanent, tamper-proof record of your communication history, free from vendor lock-in.
-
-## 📸 Screenshots
-
-![Open Archiver Preview](assets/screenshots/dashboard-1.png)
-_Dashboard_
-
-![Open Archiver Preview](assets/screenshots/archived-emails.png)
-_Archived emails_
-
-![Open Archiver Preview](assets/screenshots/search.png)
-_Full-text search across all your emails and attachments_
-
-## 👨‍👩‍👧‍👦 Join our community!
-
-We are committed to build an engaging community around Open Archiver, and we are inviting all of you to join our community on Discord to get real-time support and connect with the team.
-
-[![Discord](https://img.shields.io/badge/Join%20our%20Discord-7289DA?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/MTtD7BhuTQ)
-
-[![Bluesky](https://img.shields.io/badge/Follow%20us%20on%20Bluesky-0265D4?style=for-the-badge&logo=bluesky&logoColor=white)](https://bsky.app/profile/openarchiver.bsky.social)
-
-## 🚀 Live demo
-
-Check out the live demo here: https://demo.openarchiver.com
-
-Username: admin@local.com
-
-Password: openarchiver_demo
 
 ## ✨ Key Features
 
@@ -151,16 +117,3 @@ After deploying the application, you will need to configure one or more ingestio
 - [Connecting to Microsoft 365](https://docs.openarchiver.com/user-guides/email-providers/imap.html)
 - [Connecting to a Generic IMAP Server](https://docs.openarchiver.com/user-guides/email-providers/imap.html)
 
-## 🤝 Contributing
-
-We welcome contributions from the community!
-
-- **Reporting Bugs**: If you find a bug, please open an issue on our GitHub repository.
-- **Suggesting Enhancements**: Have an idea for a new feature? We'd love to hear it. Open an issue to start the discussion.
-- **Code Contributions**: If you'd like to contribute code, please fork the repository and submit a pull request.
-
-Please read our `CONTRIBUTING.md` file for more details on our code of conduct and the process for submitting pull requests.
-
-## 📈 Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=LogicLabs-OU/OpenArchiver&type=Date)](https://www.star-history.com/#LogicLabs-OU/OpenArchiver&Date)
