@@ -8,21 +8,20 @@ Open Archiver provides a robust, self-hosted solution for archiving, storing, in
 
 ## ✨ Key Features
 
-- **Universal Ingestion**: Connect to any email provider to perform initial bulk imports and maintain continuous, real-time synchronization. Ingestion sources include:
-    - IMAP connection
+- **Universal Ingestion**: Run bulk imports for all sources, with continuous sync for live providers. Ingestion sources include:
+    - Generic IMAP
     - Google Workspace
-    - Microsoft 365
-    - PST files
-    - Zipped .eml files
-    - Mbox files
+    - Microsoft 365 (Graph API)
+    - PST imports
+    - Zipped `.eml` imports
+    - MBOX imports
 
-- **Secure & Efficient Storage**: Emails are stored in the standard `.eml` format. The system uses deduplication and compression to minimize storage costs. All files are encrypted at rest.
+- **Secure Storage**: Emails are stored in the standard `.eml` format, with attachments stored separately and deduplicated per source using SHA-256 hashes. Storage encryption at rest is enabled when `STORAGE_ENCRYPTION_KEY` is set (required in Docker).
 - **Pluggable Storage Backends**: Support both local filesystem storage and S3-compatible object storage (like AWS S3 or MinIO).
 - **Powerful Search & eDiscovery**: A high-performance search engine indexes the full text of emails and attachments (PDF, DOCX, etc.).
 - **Thread discovery**: The ability to discover if an email belongs to a thread/conversation and present the context.
 - **Compliance & Retention**: Define granular retention policies to automatically manage the lifecycle of your data. Place legal holds on communications to prevent deletion during litigation.
-- **File Hash and Encryption**: Email and attachment file hash values are stored in the meta database upon ingestion, meaning any attempt to alter the file content will be identified, ensuring legal and regulatory compliance.
--   - Each archived email comes with an "Integrity Report" feature that indicates if the files are original.
+- **File Hashes & Integrity**: SHA-256 hashes for emails and attachments are stored in the metadata database. Integrity reports can verify content has not been altered.
 - **Comprehensive Auditing**: An immutable audit trail logs all system activities, ensuring you have a clear record of who accessed what and when.
 
 ## 🛠️ Tech Stack
@@ -59,7 +58,7 @@ Open Archiver is built on a modern, scalable, and maintainable technology stack:
     cp .env.example .env
     ```
 
-    You will need to edit the `.env` file to set your admin passwords, secret keys, and other essential configuration. Read the .env.example for how to set up. `ENCRYPTION_KEY` and `STORAGE_ENCRYPTION_KEY` are required; the container will refuse to start if either is missing or if legacy key files are present. If a key is missing on first run, the container will generate a key file under `${STORAGE_LOCAL_ROOT_PATH}/.open-archiver/` and exit; copy it into `.env` and delete the file before starting again.
+    You will need to edit the `.env` file to set your admin passwords, secret keys, and other essential configuration. Read the `.env.example` for how to set up. `ENCRYPTION_KEY` and `STORAGE_ENCRYPTION_KEY` are required and must be different 32-byte hex values. When running via Docker, if either key is missing the entrypoint writes a key file under `${STORAGE_LOCAL_ROOT_PATH}/.open-archiver/` and exits; copy the value into `.env` and delete the file before starting again. If key files are present, the container refuses to start until you remove them.
 
 3.  **Run the application:**
 
@@ -114,6 +113,5 @@ Use the dev compose override to run the app from source with hot reload (no host
 After deploying the application, you will need to configure one or more ingestion sources to begin archiving emails. Follow our detailed guides to connect to your email provider:
 
 - [Connecting to Google Workspace](https://docs.openarchiver.com/user-guides/email-providers/google-workspace.html)
-- [Connecting to Microsoft 365](https://docs.openarchiver.com/user-guides/email-providers/imap.html)
+- [Connecting to Microsoft 365](https://docs.openarchiver.com/user-guides/email-providers/microsoft-365.html)
 - [Connecting to a Generic IMAP Server](https://docs.openarchiver.com/user-guides/email-providers/imap.html)
-
